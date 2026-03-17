@@ -6,15 +6,17 @@ plugins {
     alias(libs.plugins.composeMultiplatform)
     alias(libs.plugins.composeCompiler)
     alias(libs.plugins.kotlinSerialization)
+    alias(libs.plugins.google.devtools.ksp)
+    alias(libs.plugins.androidx.room)
 }
 
 kotlin {
     androidTarget {
         compilerOptions {
-            jvmTarget.set(JvmTarget.JVM_11)
+            jvmTarget.set(JvmTarget.JVM_17)
         }
     }
-    
+
     listOf(
         iosArm64(),
         iosSimulatorArm64()
@@ -24,7 +26,7 @@ kotlin {
             isStatic = true
         }
     }
-    
+
     sourceSets {
         androidMain.dependencies {
             implementation(libs.compose.uiToolingPreview)
@@ -32,6 +34,11 @@ kotlin {
 
             // Koin
             implementation(libs.koin.android)
+
+            // poi
+            implementation(libs.poi)
+            implementation(libs.poi.ooxml)
+            implementation(libs.poi.ooxml.lite)
         }
         commonMain.dependencies {
             implementation(libs.compose.runtime)
@@ -62,6 +69,10 @@ kotlin {
 
             // Logger
             implementation(libs.napier)
+
+            // Room Multiplatform
+            implementation(libs.androidx.room.runtime)
+            implementation(libs.androidx.sqlite.bundled)
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
@@ -91,12 +102,17 @@ android {
         }
     }
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
+}
+
+room {
+    schemaDirectory("$projectDir/schemas")
 }
 
 dependencies {
     debugImplementation(libs.compose.uiTooling)
+    ksp(libs.androidx.room.compiler)
 }
 

@@ -20,11 +20,14 @@ import io.github.aakira.napier.Napier
 import io.github.vinceglb.filekit.compose.rememberFilePickerLauncher
 import io.github.vinceglb.filekit.core.PickerType
 import kotlinx.coroutines.launch
+import com.eggetteluo.todayclass.util.ExcelParser
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen() {
     val scope = rememberCoroutineScope()
+    // 文件解析
+    val excelParser = ExcelParser()
 
     val launcher = rememberFilePickerLauncher(
         type = PickerType.File(
@@ -38,6 +41,9 @@ fun HomeScreen() {
                 try {
                     val bytes = file.readBytes()
                     Napier.d(tag = "READ_EXCEL_FILE") { "读取文件成功: ${bytes.size} bytes" }
+
+                    val courseList = excelParser.parse(bytes)// 调用文件解析
+                    Napier.d(tag = "READ_EXCEL_FILE") { "解析成功: $courseList" }
                 } catch (e: Exception) {
                     Napier.e(tag = "READ_EXCEL_FILE") { "读取文件失败: ${e.message}" }
                 }

@@ -1,6 +1,11 @@
 package com.eggetteluo.todayclass.model
 
+import androidx.room.Entity
+import androidx.room.PrimaryKey
+
+@Entity(tableName = "courses")
 data class Course(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val name: String,         // 课程名
     val teacher: String,      // 老师
     val location: String,     // 地点

@@ -1,7 +1,13 @@
 package com.eggetteluo.todayclass.di
 
+import android.content.Context
+import androidx.room.RoomDatabase
+import com.eggetteluo.todayclass.database.AppDatabase
+import com.eggetteluo.todayclass.database.getDatabaseBuilder
 import org.koin.dsl.module
 
 actual val platformModule = module {
-    // Android 特有注入
+    single<RoomDatabase.Builder<AppDatabase>> {
+        getDatabaseBuilder(get<Context>())
+    }
 }

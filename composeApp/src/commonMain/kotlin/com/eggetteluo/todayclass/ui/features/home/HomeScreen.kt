@@ -7,6 +7,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.EventNote
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.outlined.EventNote
@@ -219,21 +220,20 @@ fun HomeScreen(
                 .background(MaterialTheme.colorScheme.surface)
         ) {
             if (courses.isEmpty()) {
-                // 优化的空状态展示
                 Column(
                     modifier = Modifier.fillMaxSize().padding(32.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Outlined.EventNote,
+                        imageVector = Icons.AutoMirrored.Outlined.EventNote,
                         contentDescription = null,
                         modifier = Modifier.size(64.dp),
                         tint = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
                     )
                     Spacer(Modifier.height(16.dp))
                     Text(
-                        "今日无课，勾栏听曲",
+                        if (isTomorrow) "明天没课，今晚奖励一把王者荣耀？" else "今日无课，勾栏听曲",
                         style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.outline
                     )
@@ -245,7 +245,7 @@ fun HomeScreen(
                     verticalArrangement = Arrangement.spacedBy(4.dp) // 配合 CourseItem 内部 padding
                 ) {
                     items(courses) { course ->
-                        CourseItem(course)
+                        CourseItem(course, !isTomorrow)
                     }
                 }
             }

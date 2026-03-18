@@ -32,7 +32,7 @@ object DataCleaner {
                         weekList = parsedWeeks,
                         location = location,
                         dayOfWeek = dayOfWeek,
-                        section = "$start-${end}节"
+                        section = "$start-${end}"
                     )
                 )
             }

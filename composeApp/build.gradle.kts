@@ -94,7 +94,7 @@ android {
         applicationId = "com.eggetteluo.todayclass"
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
-        versionCode = 1
+        versionCode = 2
         versionName = "1.0.0"
     }
     packaging {
@@ -110,6 +110,17 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    applicationVariants.all {
+        val variant = this
+        outputs.all {
+            val output = this as com.android.build.gradle.internal.api.ApkVariantOutputImpl
+            val versionName = variant.versionName
+            val versionCode = variant.versionCode
+            val buildType = variant.buildType.name
+            output.outputFileName = "TodayClass_v${versionName}_${versionCode}_${buildType}.apk"
+        }
     }
 }
 

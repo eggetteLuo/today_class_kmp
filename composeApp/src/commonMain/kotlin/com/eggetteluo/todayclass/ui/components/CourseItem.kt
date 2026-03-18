@@ -1,21 +1,43 @@
 package com.eggetteluo.todayclass.ui.components
 
-import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Schedule
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedCard
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -41,55 +63,62 @@ fun CourseItem(
     }
 
     // 动态样式数值
-    val elevation by animateDpAsState(targetValue = if (status == CourseStatus.ONGOING) 4.dp else 0.dp)
-    val containerAlpha by animateFloatAsState(targetValue = if (status == CourseStatus.FINISHED) 0.6f else 1f)
+    val containerAlpha by animateFloatAsState(targetValue = if (status == CourseStatus.FINISHED) 0.5f else 1f)
+
+    // 呼吸动画逻辑 (仅针对进行中)
+    val infiniteTransition = rememberInfiniteTransition(label = "breathing")
+    val pulseAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.4f,
+        targetValue = 0.8f,
+        animationSpec = infiniteRepeatable(tween(1500), RepeatMode.Reverse),
+        label = "pulse"
+    )
 
     OutlinedCard(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .padding(horizontal = 16.dp, vertical = 6.dp)
             .alpha(containerAlpha),
-        shape = RoundedCornerShape(20.dp), // 稍微收敛一点的圆角
-        elevation = CardDefaults.outlinedCardElevation(defaultElevation = elevation),
+        shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.outlinedCardColors(
             containerColor = when (status) {
-                CourseStatus.ONGOING -> courseColor.copy(alpha = 0.08f)
-                CourseStatus.FINISHED -> Color.Transparent // 已结束背景全透明，靠阴影和灰度区分
+                CourseStatus.ONGOING -> courseColor.copy(alpha = 0.05f)
+                CourseStatus.FINISHED -> Color.Transparent
                 else -> MaterialTheme.colorScheme.surface
             }
         ),
         border = CardDefaults.outlinedCardBorder().copy(
-            brush = androidx.compose.ui.graphics.SolidColor(
+            brush = SolidColor(
                 when (status) {
-                    CourseStatus.ONGOING -> courseColor.copy(alpha = 0.5f)
-                    CourseStatus.FINISHED -> MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f)
-                    else -> MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
+                    CourseStatus.ONGOING -> courseColor.copy(alpha = 0.4f)
+                    CourseStatus.FINISHED -> MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.1f)
+                    else -> MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
                 }
             ),
-            width = if (status == CourseStatus.ONGOING) 1.5.dp else 0.8.dp
+            width = if (status == CourseStatus.ONGOING) 1.2.dp else 0.6.dp
         )
     ) {
         Row(modifier = Modifier.height(IntrinsicSize.Min).fillMaxWidth()) {
-            // 1. 胶囊形色条 (不再紧贴顶部和底部)
+            // 1. 左侧指示色条 (进行中时带呼吸感)
             Box(
                 modifier = Modifier
                     .fillMaxHeight()
-                    .width(5.dp)
-                    .padding(vertical = 16.dp, horizontal = 0.dp)
+                    .width(4.dp)
+                    .padding(vertical = 12.dp)
                     .background(
-                        color = if (status == CourseStatus.FINISHED) Color.Gray.copy(alpha = 0.4f)
-                        else courseColor.copy(alpha = 0.8f),
+                        color = if (status == CourseStatus.FINISHED) Color.LightGray.copy(alpha = 0.5f)
+                        else courseColor.copy(alpha = if (status == CourseStatus.ONGOING) pulseAlpha else 0.7f),
                         shape = RoundedCornerShape(topEnd = 4.dp, bottomEnd = 4.dp)
                     )
             )
 
             Column(
                 modifier = Modifier
-                    .padding(16.dp)
+                    .padding(start = 12.dp, end = 16.dp, top = 16.dp, bottom = 16.dp)
                     .weight(1f),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                // 第一行：标题与教师卡片
+                // 第一行：标题与状态标签
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -99,8 +128,8 @@ fun CourseItem(
                         Text(
                             text = course.name,
                             style = MaterialTheme.typography.titleMedium.copy(
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 18.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 17.sp,
                                 color = if (status == CourseStatus.FINISHED) Color.Gray else MaterialTheme.colorScheme.onSurface
                             )
                         )
@@ -111,7 +140,7 @@ fun CourseItem(
                     TeacherChip(course.teacher, isGray = status == CourseStatus.FINISHED)
                 }
 
-                // 第二行：地点和时间 (分垂直排布，增加易读性)
+                // 信息部分
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     InfoItem(
                         icon = Icons.Default.LocationOn,
@@ -139,21 +168,21 @@ private fun StatusBadge(status: CourseStatus, accentColor: Color) {
     }
 
     Surface(
-        color = color.copy(alpha = 0.1f),
-        shape = RoundedCornerShape(6.dp),
-        border = androidx.compose.foundation.BorderStroke(0.5.dp, color.copy(alpha = 0.2f))
+        color = color.copy(alpha = 0.12f),
+        shape = RoundedCornerShape(4.dp)
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            if (status == CourseStatus.FINISHED) {
-                Icon(
-                    imageVector = Icons.Default.CheckCircle,
-                    contentDescription = null,
-                    modifier = Modifier.size(12.dp).padding(end = 4.dp),
-                    tint = color
+            if (status == CourseStatus.ONGOING) {
+                // 进行中增加一个小动点
+                val dotAlpha by rememberInfiniteTransition().animateFloat(
+                    initialValue = 0.2f, targetValue = 1f,
+                    animationSpec = infiniteRepeatable(tween(800), RepeatMode.Reverse)
                 )
+                Box(Modifier.size(6.dp).background(color, RoundedCornerShape(3.dp)).alpha(dotAlpha))
+                Spacer(Modifier.width(6.dp))
             }
             Text(
                 text = text,
@@ -170,9 +199,9 @@ private fun StatusBadge(status: CourseStatus, accentColor: Color) {
 @Composable
 private fun TeacherChip(name: String, isGray: Boolean) {
     Surface(
-        color = if (isGray) MaterialTheme.colorScheme.surfaceVariant
-        else MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.4f),
-        shape = RoundedCornerShape(8.dp)
+        color = if (isGray) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        else MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.3f),
+        shape = RoundedCornerShape(6.dp)
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
@@ -181,13 +210,13 @@ private fun TeacherChip(name: String, isGray: Boolean) {
             Icon(
                 imageVector = Icons.Default.Person,
                 contentDescription = null,
-                modifier = Modifier.size(14.dp),
-                tint = if (isGray) Color.Gray else MaterialTheme.colorScheme.onSecondaryContainer
+                modifier = Modifier.size(12.dp),
+                tint = if (isGray) Color.Gray else MaterialTheme.colorScheme.primary
             )
             Spacer(Modifier.width(4.dp))
             Text(
                 text = name,
-                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium),
+                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                 color = if (isGray) Color.Gray else MaterialTheme.colorScheme.onSecondaryContainer
             )
         }
@@ -200,27 +229,28 @@ private fun InfoItem(icon: ImageVector, text: String, tint: Color) {
         Icon(
             imageVector = icon,
             contentDescription = null,
-            modifier = Modifier.size(16.dp),
-            tint = tint.copy(alpha = 0.8f)
+            modifier = Modifier.size(14.dp),
+            tint = tint.copy(alpha = 0.7f)
         )
-        Spacer(Modifier.width(8.dp)) // 增加图标与文字的间距
+        Spacer(Modifier.width(6.dp))
         Text(
             text = text,
             style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp),
-            color = if (tint == Color.Gray) Color.Gray else MaterialTheme.colorScheme.onSurfaceVariant
+            color = if (tint == Color.Gray) Color.Gray else MaterialTheme.colorScheme.onSurfaceVariant.copy(
+                alpha = 0.8f
+            )
         )
     }
 }
 
 @Composable
 private fun rememberCourseColor(name: String): Color {
-    // 使用更柔和的 M3 色系
     val colors = listOf(
-        Color(0xFF6750A4),
-        Color(0xFF006A6A),
-        Color(0xFF924B4B),
-        Color(0xFF4B5F92),
-        Color(0xFF7A5901)
+        Color(0xFF6750A4), // 深紫
+        Color(0xFF006A6A), // 墨绿
+        Color(0xFFB3261E), // 砖红
+        Color(0xFF005AC1), // 亮蓝
+        Color(0xFF8B5000)  // 棕褐
     )
     return colors[abs(name.hashCode()) % colors.size]
 }

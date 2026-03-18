@@ -1,39 +1,34 @@
 package com.eggetteluo.todayclass.util
 
 import com.eggetteluo.todayclass.model.Course
+import org.apache.poi.ss.usermodel.Cell
+import org.apache.poi.ss.usermodel.Sheet
 import org.apache.poi.ss.usermodel.WorkbookFactory
+import org.apache.poi.ss.util.CellRangeAddress
 import java.io.ByteArrayInputStream
 
 actual class ExcelParser actual constructor() {
     actual fun parse(bytes: ByteArray): List<Course> {
         val courseList = mutableListOf<Course>()
-
         try {
-            // 1. 加载工作簿
             val workbook = WorkbookFactory.create(ByteArrayInputStream(bytes))
             val sheet = workbook.getSheetAt(0)
 
-            // 2. 扫描关键行（第一、三、五、七、九节）
-            // 对应 Excel 的 Row 索引通常是 4, 6, 8, 10, 12
-            val targetRows = listOf(4, 6, 8, 10, 12)
+            val rowToSectionMap = mapOf(
+                4 to "1-2", 6 to "3-4", 8 to "5-6", 10 to "7-8", 12 to "9-10"
+            )
 
-            for (rowIndex in targetRows) {
-                val row = sheet.getRow(rowIndex) ?: continue
-
-                // 获取节次标签（如 "第一节"）
-                val sectionLabel = row.getCell(0)?.toString()?.trim() ?: "未知节次"
-
-                // 3. 扫描周一到周日（Column 1 到 7）
+            for ((rowIndex, defaultSection) in rowToSectionMap) {
+                sheet.getRow(rowIndex) ?: continue
                 for (colIndex in 1..7) {
-                    val cell = row.getCell(colIndex) ?: continue
-                    val rawContent = cell.toString().trim()
+                    // 获取单元格内容，支持合并单元格取值
+                    val rawContent = getMergedCellValue(sheet, rowIndex, colIndex)
 
                     if (rawContent.isNotEmpty()) {
-                        // 4. 调用 Kotlin 通用正则清洗逻辑
                         val parsed = DataCleaner.cleanRawText(
                             rawContent = rawContent,
                             dayOfWeek = colIndex,
-                            section = sectionLabel
+                            defaultSection = defaultSection
                         )
                         courseList.addAll(parsed)
                     }
@@ -43,7 +38,22 @@ actual class ExcelParser actual constructor() {
         } catch (e: Exception) {
             e.printStackTrace()
         }
+        // 使用 distinctBy 避免 5-8 节课因为扫描两次而产生重复
+        return courseList.distinctBy { "${it.name}-${it.dayOfWeek}-${it.section}-${it.originalWeeks}" }
+    }
 
-        return courseList
+    /**
+     * 获取单元格内容：如果是合并单元格，则返回左上角首格的内容
+     */
+    private fun getMergedCellValue(sheet: Sheet, row: Int, col: Int): String {
+        for (i in 0 until sheet.numMergedRegions) {
+            val region = sheet.getMergedRegion(i)
+            if (region.isInRange(row, col)) {
+                val firstRow = region.firstRow
+                val firstCol = region.firstColumn
+                return sheet.getRow(firstRow)?.getCell(firstCol)?.toString()?.trim() ?: ""
+            }
+        }
+        return sheet.getRow(row)?.getCell(col)?.toString()?.trim() ?: ""
     }
 }

@@ -73,6 +73,12 @@ kotlin {
             // Room Multiplatform
             implementation(libs.androidx.room.runtime)
             implementation(libs.androidx.sqlite.bundled)
+
+            // datetime
+            implementation(libs.kotlinx.datetime)
+
+            // preferences
+            implementation(libs.androidx.datastore.preferences)
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)

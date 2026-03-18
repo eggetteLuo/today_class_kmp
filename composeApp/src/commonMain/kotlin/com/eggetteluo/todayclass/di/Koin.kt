@@ -1,5 +1,6 @@
 package com.eggetteluo.todayclass.di
 
+import com.eggetteluo.todayclass.data.SettingsRepository
 import com.eggetteluo.todayclass.database.AppDatabase
 import com.eggetteluo.todayclass.database.getDatabase
 import com.eggetteluo.todayclass.ui.features.home.HomeViewModel
@@ -20,6 +21,8 @@ val commonModule = module {
 
     // 3. 注入 ViewModel
     viewModelOf(::HomeViewModel)
+
+    single { SettingsRepository(get()) }
 }
 
 expect val platformModule: Module

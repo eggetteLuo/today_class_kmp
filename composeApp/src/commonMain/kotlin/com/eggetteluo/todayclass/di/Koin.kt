@@ -11,15 +11,12 @@ import org.koin.dsl.KoinAppDeclaration
 import org.koin.dsl.module
 
 val commonModule = module {
-    // 1. 获取平台已经提供好的 Builder，然后创建数据库
     single<AppDatabase> {
-        getDatabase(get()) // 这里的 get() 会寻找 RoomDatabase.Builder<AppDatabase>
+        getDatabase(get())
     }
 
-    // 2. 注入 DAO
     single { get<AppDatabase>().courseDao() }
 
-    // 3. 注入 ViewModel
     viewModelOf(::HomeViewModel)
 
     single { SettingsRepository(get()) }
@@ -27,7 +24,12 @@ val commonModule = module {
 
 expect val platformModule: Module
 
+private var koinStarted = false
+
 fun initKoin(config: KoinAppDeclaration? = null) {
+    if (koinStarted) return
+    koinStarted = true
+
     startKoin {
         config?.invoke(this)
         modules(commonModule, platformModule)

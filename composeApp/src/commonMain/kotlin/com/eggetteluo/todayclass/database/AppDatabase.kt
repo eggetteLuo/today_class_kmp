@@ -14,7 +14,16 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun courseDao(): CourseDao
 }
 
-@Suppress("NO_ACTUAL_FOR_EXPECT")
+@Suppress("KotlinNoActualForExpect")
 expect object AppDatabaseConstructor : RoomDatabaseConstructor<AppDatabase> {
     override fun initialize(): AppDatabase
+}
+
+expect fun getDatabaseBuilder(ctx: Any?): RoomDatabase.Builder<AppDatabase>
+
+fun getDatabase(builder: RoomDatabase.Builder<AppDatabase>): AppDatabase {
+    return builder
+        .setDriver(androidx.sqlite.driver.bundled.BundledSQLiteDriver())
+        .fallbackToDestructiveMigration(true)
+        .build()
 }

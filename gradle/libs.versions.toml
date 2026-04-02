@@ -23,7 +23,7 @@ navigation = "2.9.2"
 filekit = "0.8.8"
 napier = "2.7.1"
 poi = "5.5.1"
-ksp = "2.1.20-1.0.31"
+ksp = "2.3.4"
 room = "2.8.4"
 sqliteBundled = "2.6.2"
 

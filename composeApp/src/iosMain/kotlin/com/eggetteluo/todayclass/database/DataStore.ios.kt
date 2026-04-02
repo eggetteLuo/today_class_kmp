@@ -1,17 +1,18 @@
 package com.eggetteluo.todayclass.database
 
-import androidx.room.Room
-import androidx.room.RoomDatabase
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
 import kotlinx.cinterop.ExperimentalForeignApi
 import platform.Foundation.NSDocumentDirectory
 import platform.Foundation.NSFileManager
 import platform.Foundation.NSURL
 import platform.Foundation.NSUserDomainMask
 
-actual fun getDatabaseBuilder(ctx: Any?): RoomDatabase.Builder<AppDatabase> {
-    val dbFilePath = documentDirectory() + "/today_class.db"
-    return Room.databaseBuilder<AppDatabase>(
-        name = dbFilePath
+fun createDataStore(): DataStore<Preferences> {
+    return createDataStore(
+        producePath = {
+            documentDirectory() + "/$DATA_STORE_FILE_NAME"
+        }
     )
 }
 

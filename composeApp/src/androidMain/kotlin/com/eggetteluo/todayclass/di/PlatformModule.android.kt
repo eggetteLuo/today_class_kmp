@@ -1,6 +1,8 @@
 package com.eggetteluo.todayclass.di
 
 import android.content.Context
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
 import androidx.room.RoomDatabase
 import com.eggetteluo.todayclass.database.AppDatabase
 import com.eggetteluo.todayclass.database.createDataStore
@@ -12,5 +14,7 @@ actual val platformModule = module {
         getDatabaseBuilder(get<Context>())
     }
 
-    single { createDataStore(get()) }
+    single<DataStore<Preferences>> {
+        createDataStore(context = get())
+    }
 }

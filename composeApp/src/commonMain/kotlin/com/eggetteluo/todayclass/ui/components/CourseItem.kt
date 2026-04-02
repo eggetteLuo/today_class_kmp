@@ -1,10 +1,10 @@
 package com.eggetteluo.todayclass.ui.components
 
-import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -65,14 +65,18 @@ fun CourseItem(
     // 动态样式数值
     val containerAlpha by animateFloatAsState(targetValue = if (status == CourseStatus.FINISHED) 0.5f else 1f)
 
-    // 呼吸动画逻辑 (仅针对进行中)
-    val infiniteTransition = rememberInfiniteTransition(label = "breathing")
-    val pulseAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.4f,
-        targetValue = 0.8f,
-        animationSpec = infiniteRepeatable(tween(1500), RepeatMode.Reverse),
-        label = "pulse"
-    )
+    // 仅进行中时启用呼吸动画，减少无效动画开销
+    val pulseAlpha = if (status == CourseStatus.ONGOING) {
+        val infiniteTransition = rememberInfiniteTransition(label = "breathing")
+        infiniteTransition.animateFloat(
+            initialValue = 0.4f,
+            targetValue = 0.8f,
+            animationSpec = infiniteRepeatable(tween(1500), RepeatMode.Reverse),
+            label = "pulse"
+        ).value
+    } else {
+        0.7f
+    }
 
     OutlinedCard(
         modifier = modifier

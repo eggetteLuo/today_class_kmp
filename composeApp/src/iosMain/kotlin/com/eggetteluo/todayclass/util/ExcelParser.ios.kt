@@ -12,10 +12,22 @@ import platform.Foundation.NSUUID
 actual class ExcelParser actual constructor() {
     actual fun parse(bytes: ByteArray): List<Course> {
         if (bytes.isXls()) {
-            return parseXls(bytes)
+            return try {
+                parseXls(bytes)
+            } catch (e: Exception) {
+                parseFromHtmlOrXmlTable(bytes).takeIf { it.isNotEmpty() }?.let {
+                    Napier.i(tag = "ExcelParser") { "iOS xls 主解析失败，已通过 HTML/XML 兜底解析成功" }
+                    return it.distinctBy { c -> "${c.name}-${c.dayOfWeek}-${c.section}-${c.originalWeeks}" }
+                }
+                throw e
+            }
         }
         if (!bytes.isXlsx()) {
-            throw IllegalArgumentException("不支持的 Excel 文件格式，请使用 .xlsx")
+            parseFromHtmlOrXmlTable(bytes).takeIf { it.isNotEmpty() }?.let {
+                Napier.i(tag = "ExcelParser") { "iOS 非标准 Excel，已通过 HTML/XML 兜底解析成功" }
+                return it.distinctBy { c -> "${c.name}-${c.dayOfWeek}-${c.section}-${c.originalWeeks}" }
+            }
+            throw IllegalArgumentException("不支持的 Excel 文件格式，请使用 .xlsx 或网页表格导出文件")
         }
 
         val fileSystem = FileSystem.SYSTEM
@@ -29,7 +41,12 @@ actual class ExcelParser actual constructor() {
             val zipFs = fileSystem.openZip(tempZipPath)
             val sharedStrings = readSharedStrings(zipFs)
             val sheetXml = readEntry(zipFs, "xl/worksheets/sheet1.xml")
-            if (sheetXml.isEmpty()) return emptyList()
+            if (sheetXml.isEmpty()) {
+                parseFromHtmlOrXmlTable(bytes).takeIf { it.isNotEmpty() }?.let {
+                    return it.distinctBy { c -> "${c.name}-${c.dayOfWeek}-${c.section}-${c.originalWeeks}" }
+                }
+                return emptyList()
+            }
 
             val mergedRanges = parseMergedRanges(sheetXml)
             val cellValues = parseCellValues(sheetXml, sharedStrings)
@@ -61,8 +78,21 @@ actual class ExcelParser actual constructor() {
                 }
             }
 
-            courses.distinctBy { "${it.name}-${it.dayOfWeek}-${it.section}-${it.originalWeeks}" }
+            if (courses.isNotEmpty()) {
+                courses.distinctBy { "${it.name}-${it.dayOfWeek}-${it.section}-${it.originalWeeks}" }
+            } else {
+                val fallback = parseFromHtmlOrXmlTable(bytes)
+                if (fallback.isNotEmpty()) {
+                    fallback.distinctBy { c -> "${c.name}-${c.dayOfWeek}-${c.section}-${c.originalWeeks}" }
+                } else {
+                    emptyList()
+                }
+            }
         } catch (e: Exception) {
+            parseFromHtmlOrXmlTable(bytes).takeIf { it.isNotEmpty() }?.let {
+                Napier.i(tag = "ExcelParser") { "iOS xlsx 主解析失败，已通过 HTML/XML 兜底解析成功" }
+                return it.distinctBy { c -> "${c.name}-${c.dayOfWeek}-${c.section}-${c.originalWeeks}" }
+            }
             Napier.e(tag = "ExcelParser", throwable = e) { "iOS Excel 解析失败" }
             throw IllegalArgumentException("iOS 无法解析该 Excel 文件，请优先使用 .xlsx", e)
         } finally {
@@ -102,6 +132,97 @@ private fun parseXls(bytes: ByteArray): List<Course> {
         Napier.e(tag = "ExcelParser", throwable = e) { "iOS xls 解析失败" }
         throw IllegalArgumentException("iOS 无法解析该 .xls 文件，请优先使用 .xlsx", e)
     }
+}
+
+private fun parseFromHtmlOrXmlTable(bytes: ByteArray): List<Course> {
+    val text = decodeBestEffort(bytes)
+    if (!text.looksLikeTableMarkup()) return emptyList()
+
+    val rows = parseRowsFromMarkup(text)
+    if (rows.isEmpty()) return emptyList()
+
+    val rowToSectionMap = mapOf(
+        4 to "1-2",
+        6 to "3-4",
+        8 to "5-6",
+        10 to "7-8",
+        12 to "9-10"
+    )
+
+    val courses = mutableListOf<Course>()
+    for ((row, defaultSection) in rowToSectionMap) {
+        for (col in 1..7) {
+            val content = rows.getOrNull(row)?.getOrNull(col)?.trim().orEmpty()
+            if (content.isBlank()) continue
+            courses += DataCleaner.cleanRawText(
+                rawContent = content,
+                dayOfWeek = col,
+                defaultSection = defaultSection
+            )
+        }
+    }
+    return courses
+}
+
+private fun parseRowsFromMarkup(markup: String): List<List<String>> {
+    val rows = mutableListOf<List<String>>()
+    val rowRegex = """(?is)<(?:tr|Row)\b[^>]*>(.*?)</(?:tr|Row)>""".toRegex()
+
+    rowRegex.findAll(markup).forEach { rowMatch ->
+        val rowBody = rowMatch.groupValues[1]
+        val cellRegex = """(?is)<(?:td|th|Cell)\b([^>]*)>(.*?)</(?:td|th|Cell)>""".toRegex()
+        val cells = mutableListOf<String>()
+
+        cellRegex.findAll(rowBody).forEach { cellMatch ->
+            val attrs = cellMatch.groupValues[1]
+            val body = cellMatch.groupValues[2]
+            val dataValue = """(?is)<Data\b[^>]*>(.*?)</Data>""".toRegex().find(body)?.groupValues?.get(1) ?: body
+            val text = stripMarkup(dataValue).trim()
+
+            val index = """(?i)(?:ss:)?Index\s*=\s*"(\d+)"""".toRegex().find(attrs)?.groupValues?.get(1)?.toIntOrNull()
+            val mergeAcross = """(?i)(?:ss:)?MergeAcross\s*=\s*"(\d+)"""".toRegex().find(attrs)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+            val colspan = """(?i)colspan\s*=\s*"(\d+)"""".toRegex().find(attrs)?.groupValues?.get(1)?.toIntOrNull() ?: 1
+
+            if (index != null && index > cells.size + 1) {
+                repeat(index - (cells.size + 1)) { cells.add("") }
+            }
+
+            val span = maxOf(colspan, mergeAcross + 1)
+            repeat(span.coerceAtLeast(1)) { cells.add(text) }
+        }
+
+        if (cells.isNotEmpty()) {
+            rows.add(cells)
+        }
+    }
+
+    return rows
+}
+
+private fun decodeBestEffort(bytes: ByteArray): String {
+    val utf8 = bytes.decodeToString()
+    if (utf8.looksLikeTableMarkup()) return utf8
+    return utf8
+}
+
+private fun String.looksLikeTableMarkup(): Boolean {
+    val s = lowercase()
+    return s.contains("<table") || s.contains("<tr") || s.contains("<td") || s.contains("<row") || s.contains("<cell")
+}
+
+private fun stripMarkup(input: String): String {
+    return input
+        .replace("(?is)<br\\s*/?>".toRegex(), "\n")
+        .replace("(?is)<[^>]+>".toRegex(), " ")
+        .replace("&nbsp;", " ")
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&apos;", "'")
+        .replace("&#39;", "'")
+        .replace("\\s+".toRegex(), " ")
+        .trim()
 }
 
 private data class CellRef(val row: Int, val col: Int) {

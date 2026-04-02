@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.EventNote
 import androidx.compose.material.icons.automirrored.outlined.EventNote
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Schedule
@@ -40,6 +41,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -58,6 +60,7 @@ import com.eggetteluo.todayclass.util.TimeUtil
 import io.github.aakira.napier.Napier
 import io.github.vinceglb.filekit.compose.rememberFilePickerLauncher
 import io.github.vinceglb.filekit.core.PickerType
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.koin.compose.viewmodel.koinViewModel
 
@@ -75,16 +78,24 @@ fun HomeScreen(
     var showWeekDialog by remember { mutableStateOf(false) }
     var tempCourseList by remember { mutableStateOf<List<Course>>(emptyList()) }
     var inputWeek by remember { mutableIntStateOf(1) }
+    var importErrorMessage by remember { mutableStateOf<String?>(null) }
 
     val courses by viewModel.displayCourses.collectAsStateWithLifecycle()
     val currentWeek by viewModel.currentWeek.collectAsStateWithLifecycle()
     val isTomorrow by viewModel.showTomorrow.collectAsStateWithLifecycle()
 
-    val displayDateString = remember(isTomorrow) {
+    val liveTodayText by produceState(initialValue = TimeUtil.getTodayFullDateString()) {
+        while (true) {
+            delay(60_000)
+            value = TimeUtil.getTodayFullDateString()
+        }
+    }
+
+    val displayDateString = remember(isTomorrow, liveTodayText) {
         if (isTomorrow) {
             "明天课程"
         } else {
-            TimeUtil.getTodayFullDateString()
+            liveTodayText
         }
     }
 
@@ -98,12 +109,27 @@ fun HomeScreen(
                     val bytes = file.readBytes()
                     val courseList = excelParser.parse(bytes)
                     tempCourseList = courseList
+                    importErrorMessage = null
                     showWeekDialog = true
                 } catch (e: Exception) {
                     Napier.e(tag = "IMPORT", throwable = e) { "解析失败" }
+                    importErrorMessage = e.message ?: "导入失败，请检查文件格式后重试"
                 }
             }
         }
+    }
+
+    if (importErrorMessage != null) {
+        AlertDialog(
+            onDismissRequest = { importErrorMessage = null },
+            title = { Text("导入失败") },
+            text = { Text(importErrorMessage.orEmpty()) },
+            confirmButton = {
+                TextButton(onClick = { importErrorMessage = null }) {
+                    Text("我知道了")
+                }
+            }
+        )
     }
 
     // --- 周次确认对话框 (M3 风格) ---
@@ -217,15 +243,13 @@ fun HomeScreen(
                         selected = isTomorrow,
                         onClick = { viewModel.toggleTomorrow(!isTomorrow) },
                         label = { Text(if (isTomorrow) "返回今日" else "看明天") },
-                        leadingIcon = if (isTomorrow) {
-                            {
-                                Icon(
-                                    Icons.Default.Schedule,
-                                    modifier = Modifier.size(18.dp),
-                                    contentDescription = null
-                                )
-                            }
-                        } else null,
+                        leadingIcon = {
+                            Icon(
+                                imageVector = if (isTomorrow) Icons.Default.Schedule else Icons.AutoMirrored.Filled.EventNote,
+                                modifier = Modifier.size(18.dp),
+                                contentDescription = null
+                            )
+                        },
                         modifier = Modifier.padding(end = 16.dp)
                     )
                 },
@@ -273,7 +297,13 @@ fun HomeScreen(
                     contentPadding = PaddingValues(bottom = 80.dp), // 为 FAB 留出空间
                     verticalArrangement = Arrangement.spacedBy(4.dp) // 配合 CourseItem 内部 padding
                 ) {
-                    items(courses) { course ->
+                    items(
+                        items = courses,
+                        key = { course ->
+                            if (course.id != 0L) course.id
+                            else "${course.name}-${course.dayOfWeek}-${course.section}-${course.originalWeeks}"
+                        }
+                    ) { course ->
                         CourseItem(course, !isTomorrow)
                     }
                 }

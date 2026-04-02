@@ -7,9 +7,19 @@ import com.eggetteluo.todayclass.database.CourseDao
 import com.eggetteluo.todayclass.model.Course
 import com.eggetteluo.todayclass.util.TimeUtil
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import kotlinx.datetime.toLocalDate
+import kotlinx.datetime.LocalDate
 
 class HomeViewModel(
     private val courseDao: CourseDao,
@@ -20,20 +30,32 @@ class HomeViewModel(
     private val _showTomorrow = MutableStateFlow(false)
     val showTomorrow: StateFlow<Boolean> = _showTomorrow.asStateFlow()
 
-    // 选中的日期 (默认今天)
-    private val _selectedDay = MutableStateFlow(TimeUtil.getTodayDayOfWeek())
+    // 每分钟触发一次，用于跨天后自动刷新“今天是周几/第几周”
+    private val refreshTicker: Flow<Unit> = flow {
+        emit(Unit)
+        while (true) {
+            delay(60_000)
+            emit(Unit)
+        }
+    }
+
+    private val todayDay: StateFlow<Int> = refreshTicker
+        .map { TimeUtil.getTodayDayOfWeek() }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, TimeUtil.getTodayDayOfWeek())
 
     // 自动计算的当前周次 (Flow)
-    val currentWeek: StateFlow<Int> = settingsRepository.startDateFlow
-        .map { dateStr ->
-            if (dateStr == null) 3 // 没设置过，给个默认值
-            else TimeUtil.calculateCurrentWeek(dateStr.toLocalDate())
+    val currentWeek: StateFlow<Int> = combine(
+        settingsRepository.startDateFlow,
+        refreshTicker
+    ) { dateStr, _ ->
+        if (dateStr == null) 1
+        else TimeUtil.calculateCurrentWeek(LocalDate.parse(dateStr))
         }.stateIn(viewModelScope, SharingStarted.Eagerly, 1)
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val displayCourses: StateFlow<List<Course>> = combine(
         _showTomorrow,
-        _selectedDay,
+        todayDay,
         currentWeek
     ) { isTomorrow, today, week ->
         // 计算目标天：如果是明天，且今天是周日(7)，则目标是下周一(1)
@@ -71,9 +93,5 @@ class HomeViewModel(
 
     fun toggleTomorrow(show: Boolean) {
         _showTomorrow.value = show
-        // 如果切换到今天，重置 _currentDay 为真实的今天（防止用户之前手动修改过）
-        if (!show) {
-            _selectedDay.value = TimeUtil.getTodayDayOfWeek()
-        }
     }
 }

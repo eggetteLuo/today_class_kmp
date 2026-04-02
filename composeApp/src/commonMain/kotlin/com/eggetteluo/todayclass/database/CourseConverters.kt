@@ -8,7 +8,9 @@ class CourseConverters {
     fun fromWeekList(value: List<Int>): String = value.joinToString(",")
 
     @TypeConverter
-    fun toWeekList(value: String): List<Int> =
-        if (value.isEmpty()) emptyList() else value.split(",").map { it.toInt() }
+    fun toWeekList(value: String): List<Int> = if (value.isEmpty())
+        emptyList()
+    else
+        value.split(",").map { it.toInt() }
 
 }

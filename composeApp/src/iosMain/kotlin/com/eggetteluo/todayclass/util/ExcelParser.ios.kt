@@ -140,38 +140,17 @@ private fun parseFromHtmlOrXmlTable(bytes: ByteArray): List<Course> {
 
     val rows = parseRowsFromMarkup(text)
     if (rows.isEmpty()) return emptyList()
-
-    val rowToSectionMap = mapOf(
-        4 to "1-2",
-        6 to "3-4",
-        8 to "5-6",
-        10 to "7-8",
-        12 to "9-10"
-    )
-
-    val courses = mutableListOf<Course>()
-    for ((row, defaultSection) in rowToSectionMap) {
-        for (col in 1..7) {
-            val content = rows.getOrNull(row)?.getOrNull(col)?.trim().orEmpty()
-            if (content.isBlank()) continue
-            courses += DataCleaner.cleanRawText(
-                rawContent = content,
-                dayOfWeek = col,
-                defaultSection = defaultSection
-            )
-        }
-    }
-    return courses
+    return parseFromMarkupRows(rows)
 }
 
 private fun parseRowsFromMarkup(markup: String): List<List<String>> {
-    val rows = mutableListOf<List<String>>()
+    val rawRows = mutableListOf<List<ParsedCell>>()
     val rowRegex = """(?is)<(?:tr|Row)\b[^>]*>(.*?)</(?:tr|Row)>""".toRegex()
 
     rowRegex.findAll(markup).forEach { rowMatch ->
         val rowBody = rowMatch.groupValues[1]
         val cellRegex = """(?is)<(?:td|th|Cell)\b([^>]*)>(.*?)</(?:td|th|Cell)>""".toRegex()
-        val cells = mutableListOf<String>()
+        val cells = mutableListOf<ParsedCell>()
 
         cellRegex.findAll(rowBody).forEach { cellMatch ->
             val attrs = cellMatch.groupValues[1]
@@ -180,23 +159,111 @@ private fun parseRowsFromMarkup(markup: String): List<List<String>> {
             val text = stripMarkup(dataValue).trim()
 
             val index = """(?i)(?:ss:)?Index\s*=\s*"(\d+)"""".toRegex().find(attrs)?.groupValues?.get(1)?.toIntOrNull()
+            val mergeDown = """(?i)(?:ss:)?MergeDown\s*=\s*"(\d+)"""".toRegex().find(attrs)?.groupValues?.get(1)?.toIntOrNull() ?: 0
             val mergeAcross = """(?i)(?:ss:)?MergeAcross\s*=\s*"(\d+)"""".toRegex().find(attrs)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+            val rowSpan = """(?i)rowspan\s*=\s*"(\d+)"""".toRegex().find(attrs)?.groupValues?.get(1)?.toIntOrNull() ?: 1
             val colspan = """(?i)colspan\s*=\s*"(\d+)"""".toRegex().find(attrs)?.groupValues?.get(1)?.toIntOrNull() ?: 1
 
-            if (index != null && index > cells.size + 1) {
-                repeat(index - (cells.size + 1)) { cells.add("") }
-            }
-
-            val span = maxOf(colspan, mergeAcross + 1)
-            repeat(span.coerceAtLeast(1)) { cells.add(text) }
+            val horizontalSpan = maxOf(colspan, mergeAcross + 1).coerceAtLeast(1)
+            val verticalSpan = maxOf(rowSpan, mergeDown + 1).coerceAtLeast(1)
+            cells.add(
+                ParsedCell(
+                    text = text,
+                    index = index,
+                    colSpan = horizontalSpan,
+                    rowSpan = verticalSpan
+                )
+            )
         }
 
         if (cells.isNotEmpty()) {
-            rows.add(cells)
+            rawRows.add(cells)
         }
     }
 
+    if (rawRows.isEmpty()) return emptyList()
+
+    val grid = mutableMapOf<Pair<Int, Int>, String>()
+    rawRows.forEachIndexed { rowIndex, cells ->
+        var col = 0
+        cells.forEach { cell ->
+            while (grid.containsKey(rowIndex to col)) {
+                col++
+            }
+            if (cell.index != null && cell.index > 0) {
+                col = maxOf(col, cell.index - 1)
+                while (grid.containsKey(rowIndex to col)) {
+                    col++
+                }
+            }
+
+            for (r in rowIndex until rowIndex + cell.rowSpan) {
+                for (c in col until col + cell.colSpan) {
+                    grid[r to c] = cell.text
+                }
+            }
+            col += cell.colSpan
+        }
+    }
+
+    if (grid.isEmpty()) return emptyList()
+    val maxRow = grid.keys.maxOf { it.first }
+    val maxCol = grid.keys.maxOf { it.second }
+    val rows = mutableListOf<List<String>>()
+    for (r in 0..maxRow) {
+        rows.add((0..maxCol).map { c -> grid[r to c].orEmpty() })
+    }
+
     return rows
+}
+
+private fun parseFromMarkupRows(rows: List<List<String>>): List<Course> {
+    val courses = mutableListOf<Course>()
+    val fixedRowToSectionMap = mapOf(
+        4 to "1-2",
+        6 to "3-4",
+        8 to "5-6",
+        10 to "7-8",
+        12 to "9-10"
+    )
+    val usedRows = mutableSetOf<Int>()
+
+    rows.forEachIndexed { rowIndex, row ->
+        val section = detectSectionFromHeader(row.firstOrNull().orEmpty()) ?: return@forEachIndexed
+        usedRows.add(rowIndex)
+        courses += parseCourseRow(row, section)
+    }
+
+    for ((rowIndex, section) in fixedRowToSectionMap) {
+        if (rowIndex in usedRows) continue
+        val row = rows.getOrNull(rowIndex) ?: continue
+        courses += parseCourseRow(row, section)
+    }
+
+    return courses
+}
+
+private fun parseCourseRow(row: List<String>, defaultSection: String): List<Course> {
+    val result = mutableListOf<Course>()
+    for (col in 1..7) {
+        val content = row.getOrNull(col)?.trim().orEmpty()
+        if (content.isBlank()) continue
+        result += DataCleaner.cleanRawText(
+            rawContent = content,
+            dayOfWeek = col,
+            defaultSection = defaultSection
+        )
+    }
+    return result
+}
+
+private fun detectSectionFromHeader(header: String): String? {
+    val normalized = header.replace("第", "").replace("节", "").replace(" ", "")
+    val match = """(\d{1,2})[-~～到](\d{1,2})""".toRegex().find(normalized) ?: return null
+    val start = match.groupValues[1].toIntOrNull() ?: return null
+    val end = match.groupValues[2].toIntOrNull() ?: return null
+    if (start <= 0 || end <= 0 || end < start) return null
+    return "$start-$end"
 }
 
 private fun decodeBestEffort(bytes: ByteArray): String {
@@ -703,6 +770,13 @@ private fun ByteArray.decodeUtf16Le(start: Int, end: Int): String {
     }
     return chars.joinToString("")
 }
+
+private data class ParsedCell(
+    val text: String,
+    val index: Int?,
+    val colSpan: Int,
+    val rowSpan: Int
+)
 
 private fun ByteArray.isXls(): Boolean {
     val xlsMagic = byteArrayOf(

@@ -46,7 +46,6 @@ import com.eggetteluo.todayclasskmp.core.database.entity.CourseScheduleEntity
 import com.eggetteluo.todayclasskmp.core.time.CourseStatus
 import com.eggetteluo.todayclasskmp.core.time.getCourseStatus
 import com.eggetteluo.todayclasskmp.core.time.getFormattedTimeRange
-import kotlin.math.abs
 
 @Composable
 fun CourseItemCard(
@@ -252,16 +251,4 @@ private fun InfoItem(icon: ImageVector, text: String, tint: Color) {
             color = if (tint == Color.Gray) Color.Gray else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
         )
     }
-}
-
-@Composable
-private fun rememberCourseColor(name: String): Color {
-    val colors = listOf(
-        Color(0xFF6750A4),
-        Color(0xFF006A6A),
-        Color(0xFFB3261E),
-        Color(0xFF005AC1),
-        Color(0xFF8B5000),
-    )
-    return colors[abs(name.hashCode()) % colors.size]
 }

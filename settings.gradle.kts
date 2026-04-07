@@ -3,6 +3,7 @@ enableFeaturePreview("TYPESAFE_PROJECT_ACCESSORS")
 
 pluginManagement {
     repositories {
+        maven("https://maven.pkg.jetbrains.space/public/p/compose/dev")
         google {
             mavenContent {
                 includeGroupAndSubgroups("androidx")
@@ -20,6 +21,7 @@ plugins {
 
 dependencyResolutionManagement {
     repositories {
+        maven("https://maven.pkg.jetbrains.space/public/p/compose/dev")
         google {
             mavenContent {
                 includeGroupAndSubgroups("androidx")

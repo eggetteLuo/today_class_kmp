@@ -72,15 +72,15 @@ room {
 }
 
 android {
-    namespace = "com.eggetteluo.todayclasskmp"
+    namespace = "com.eggetteluo.todayclass"
     compileSdk = libs.versions.android.compileSdk.get().toInt()
 
     defaultConfig {
-        applicationId = "com.eggetteluo.todayclasskmp"
+        applicationId = "com.eggetteluo.todayclass"
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 3
+        versionName = "1.0.0"
     }
     packaging {
         resources {
@@ -95,6 +95,15 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
+    }
+
+    applicationVariants.all {
+        outputs.all {
+            @Suppress("UNCHECKED_CAST")
+            val outputImpl = this as com.android.build.gradle.internal.api.BaseVariantOutputImpl
+            val name = versionName ?: "0.0.0"
+            outputImpl.outputFileName = "TodayClass_${name}_v${versionCode}_${buildType.name}.apk"
+        }
     }
 }
 

@@ -1,6 +1,7 @@
 package com.eggetteluo.todayclasskmp.feature.desktop.student.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -32,28 +34,47 @@ fun WeekTimetableBoard(
     modifier: Modifier = Modifier,
 ) {
     val scrollState = rememberScrollState()
-    val colWidth = 118.dp
+    val periodColWidth = 60.dp
+    val colWidth = 120.dp
     val rowHeight = 108.dp
 
     Column(modifier = modifier.horizontalScroll(scrollState)) {
         Row(
             modifier = Modifier
-                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
-                .padding(vertical = 6.dp),
+                .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f))
+                .padding(vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(
-                modifier = Modifier.width(52.dp),
-                contentAlignment = Alignment.Center,
+            Surface(
+                modifier = Modifier
+                    .width(periodColWidth)
+                    .padding(horizontal = 4.dp),
+                shape = RoundedCornerShape(10.dp),
+                color = MaterialTheme.colorScheme.secondaryContainer,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
             ) {
-                Text("节次", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
-            }
-            DAY_LABELS.forEach { label ->
                 Box(
-                    modifier = Modifier.width(colWidth),
+                    modifier = Modifier.padding(vertical = 6.dp),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text(label, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                    Text("节次", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                }
+            }
+            DAY_LABELS.forEach { label ->
+                Surface(
+                    modifier = Modifier
+                        .width(colWidth)
+                        .padding(horizontal = 4.dp),
+                    shape = RoundedCornerShape(10.dp),
+                    color = MaterialTheme.colorScheme.secondaryContainer,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                ) {
+                    Box(
+                        modifier = Modifier.padding(vertical = 6.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(label, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                    }
                 }
             }
         }
@@ -65,15 +86,23 @@ fun WeekTimetableBoard(
                     .height(rowHeight),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Box(
-                    modifier = Modifier.width(52.dp),
-                    contentAlignment = Alignment.Center,
+                Surface(
+                    modifier = Modifier
+                        .width(periodColWidth)
+                        .height(rowHeight)
+                        .padding(horizontal = 4.dp, vertical = 4.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.55f),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                 ) {
-                    Text(
-                        "$startPeriod-${endPeriod}节",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    Box(contentAlignment = Alignment.Center) {
+                        Text(
+                            "$startPeriod-$endPeriod",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onTertiaryContainer,
+                        )
+                    }
                 }
 
                 (1..7).forEach { day ->
@@ -89,10 +118,11 @@ fun WeekTimetableBoard(
                             .padding(4.dp),
                     ) {
                         if (course != null) {
+                            val courseColor = rememberCourseColor(course.courseName)
                             Surface(
                                 modifier = Modifier.fillMaxWidth(),
                                 shape = MaterialTheme.shapes.medium,
-                                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.75f),
+                                color = courseColor.copy(alpha = 0.18f),
                             ) {
                                 Column(
                                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
@@ -103,19 +133,19 @@ fun WeekTimetableBoard(
                                         style = MaterialTheme.typography.labelMedium,
                                         maxLines = 2,
                                         fontWeight = FontWeight.SemiBold,
-                                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        color = MaterialTheme.colorScheme.onSurface,
                                     )
                                     Text(
                                         text = course.location.ifBlank { "未标注教室" },
                                         style = MaterialTheme.typography.labelSmall,
                                         maxLines = 1,
-                                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f),
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
                                     )
                                     Text(
                                         text = course.teacher.ifBlank { "未标注教师" },
                                         style = MaterialTheme.typography.labelSmall,
                                         maxLines = 1,
-                                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f),
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
                                     )
                                     Text(
                                         text = getFormattedTimeRange(
@@ -125,7 +155,7 @@ fun WeekTimetableBoard(
                                         ),
                                         style = MaterialTheme.typography.labelSmall,
                                         maxLines = 1,
-                                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f),
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
                                     )
                                 }
                             }

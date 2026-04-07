@@ -1,42 +1,20 @@
 package com.eggetteluo.todayclasskmp.feature.desktop.student.ui
 
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.EventNote
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.CloseFullscreen
-import androidx.compose.material.icons.outlined.OpenInFull
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Today
 import androidx.compose.material.icons.outlined.ViewWeek
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberTopAppBarState
-import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -46,10 +24,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
 import com.eggetteluo.todayclasskmp.core.database.entity.CourseScheduleEntity
 import com.eggetteluo.todayclasskmp.core.database.mapper.toEntity
 import com.eggetteluo.todayclasskmp.core.database.repository.CourseScheduleRepository
@@ -60,9 +35,12 @@ import com.eggetteluo.todayclasskmp.core.system.FullscreenLandscapeEffect
 import com.eggetteluo.todayclasskmp.core.time.AcademicWeekCalculator
 import com.eggetteluo.todayclasskmp.feature.desktop.components.RoleDesktopScaffold
 import com.eggetteluo.todayclasskmp.feature.desktop.model.DesktopTab
-import com.eggetteluo.todayclasskmp.feature.desktop.student.ui.components.CourseItemCard
+import com.eggetteluo.todayclasskmp.feature.desktop.student.ui.components.TodayCoursesContent
+import com.eggetteluo.todayclasskmp.feature.desktop.student.ui.components.TodayTopBar
+import com.eggetteluo.todayclasskmp.feature.desktop.student.ui.components.WeekCoursesContent
 import com.eggetteluo.todayclasskmp.feature.desktop.student.ui.components.WeekPickerDialog
-import com.eggetteluo.todayclasskmp.feature.desktop.student.ui.components.WeekTimetableBoard
+import com.eggetteluo.todayclasskmp.feature.desktop.student.ui.components.WeekTimetableFullScreen
+import com.eggetteluo.todayclasskmp.feature.desktop.student.ui.components.WeekTopBar
 import io.github.vinceglb.filekit.compose.rememberFilePickerLauncher
 import io.github.vinceglb.filekit.core.PickerType
 import kotlinx.coroutines.delay
@@ -90,6 +68,7 @@ fun StudentDesktopScreen() {
     var selectedTabIndex by rememberSaveable { mutableStateOf(0) }
     var inputWeek by rememberSaveable { mutableStateOf((TermPreferences.getLastSelectedWeek() ?: 1).coerceIn(1, 25)) }
     var pendingSelectedWeek by rememberSaveable { mutableStateOf<Int?>(null) }
+    var isImportFlowActive by rememberSaveable { mutableStateOf(false) }
     var refreshKey by rememberSaveable { mutableStateOf(0) }
     var isTomorrow by rememberSaveable { mutableStateOf(false) }
     var isWeekFullScreen by rememberSaveable { mutableStateOf(false) }
@@ -158,22 +137,29 @@ fun StudentDesktopScreen() {
         type = PickerType.File(extensions = listOf("xlsx", "xls")),
         title = "选择课表文件",
     ) { pickedFile ->
+        if (!isImportFlowActive) {
+            return@rememberFilePickerLauncher
+        }
         val selectedWeek = pendingSelectedWeek
-        if (pickedFile != null && selectedWeek != null) {
-            scope.launch {
-                val instances = ExcelDebugReader.readAndLog(pickedFile)
-                AppLogger.i("StudentDesktop", "Excel instances parsed: ${instances.size}")
-                repository.replaceAll(instances.map { it.toEntity() })
-                AppLogger.i("StudentDesktop", "Saved instances into Room: ${instances.size}")
+        scope.launch {
+            try {
+                if (pickedFile != null && selectedWeek != null) {
+                    val instances = ExcelDebugReader.readAndLog(pickedFile)
+                    AppLogger.i("StudentDesktop", "Excel instances parsed: ${instances.size}")
+                    repository.replaceAll(instances.map { it.toEntity() })
+                    AppLogger.i("StudentDesktop", "Saved instances into Room: ${instances.size}")
 
-                val termStartEpochDay = AcademicWeekCalculator.deriveTermStartEpochDayFromToday(selectedWeek)
-                TermPreferences.setTermStartEpochDay(termStartEpochDay)
-                TermPreferences.setLastSelectedWeek(selectedWeek)
-                weekView = selectedWeek
-                refreshKey++
+                    val termStartEpochDay = AcademicWeekCalculator.deriveTermStartEpochDayFromToday(selectedWeek)
+                    TermPreferences.setTermStartEpochDay(termStartEpochDay)
+                    TermPreferences.setLastSelectedWeek(selectedWeek)
+                    weekView = selectedWeek
+                    refreshKey++
+                }
+            } finally {
+                pendingSelectedWeek = null
+                isImportFlowActive = false
             }
         }
-        pendingSelectedWeek = null
     }
 
     RoleDesktopScaffold(
@@ -219,11 +205,18 @@ fun StudentDesktopScreen() {
         currentWeek = inputWeek,
         onWeekChange = { inputWeek = it },
         onConfirm = {
+            if (isImportFlowActive) return@WeekPickerDialog
             pendingSelectedWeek = inputWeek
+            isImportFlowActive = true
             showWeekDialog = false
             scope.launch {
                 delay(180)
-                excelPickerLauncher.launch()
+                runCatching { excelPickerLauncher.launch() }
+                    .onFailure {
+                        AppLogger.e("StudentDesktop", "Failed to launch excel picker", it)
+                        pendingSelectedWeek = null
+                        isImportFlowActive = false
+                    }
             }
         },
         onDismiss = { showWeekDialog = false },
@@ -240,243 +233,7 @@ fun StudentDesktopScreen() {
     }
 }
 
-@Composable
-@OptIn(ExperimentalMaterial3Api::class)
-private fun TodayTopBar(
-    todayUiState: TodayCoursesUiState,
-    isTomorrow: Boolean,
-    onToggleTomorrow: () -> Unit,
-    scrollBehavior: androidx.compose.material3.TopAppBarScrollBehavior,
-) {
-    LargeTopAppBar(
-        title = {
-            Column {
-                Text(text = if (isTomorrow) "明日预告" else "今日课表", fontWeight = FontWeight.ExtraBold)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = todayUiState.displayDateString,
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Text(" · ", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.outline)
-                    Surface(
-                        color = MaterialTheme.colorScheme.secondaryContainer,
-                        shape = MaterialTheme.shapes.extraSmall,
-                        modifier = Modifier.padding(start = 2.dp),
-                    ) {
-                        Text(
-                            text = "第 ${todayUiState.currentWeek ?: 1} 周",
-                            style = MaterialTheme.typography.labelSmall,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                            color = MaterialTheme.colorScheme.onSecondaryContainer,
-                            fontWeight = FontWeight.Bold,
-                        )
-                    }
-                }
-            }
-        },
-        scrollBehavior = scrollBehavior,
-        colors = TopAppBarDefaults.topAppBarColors(
-            containerColor = MaterialTheme.colorScheme.surface,
-            scrolledContainerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(3.dp),
-            navigationIconContentColor = Color.Unspecified,
-            titleContentColor = Color.Unspecified,
-            actionIconContentColor = Color.Unspecified,
-        ),
-        actions = {
-            FilterChip(
-                selected = isTomorrow,
-                onClick = onToggleTomorrow,
-                label = { Text(if (isTomorrow) "返回今日" else "看明天") },
-                leadingIcon = {
-                    Icon(
-                        imageVector = if (isTomorrow) Icons.Outlined.Today else Icons.AutoMirrored.Filled.EventNote,
-                        modifier = Modifier.size(18.dp),
-                        contentDescription = null,
-                    )
-                },
-                modifier = Modifier.padding(end = 16.dp),
-            )
-        },
-    )
-}
-
-@Composable
-@OptIn(ExperimentalMaterial3Api::class)
-private fun WeekTopBar(
-    weekUiState: WeekCoursesUiState,
-    scrollBehavior: androidx.compose.material3.TopAppBarScrollBehavior,
-    onPrevWeek: () -> Unit,
-    onNextWeek: () -> Unit,
-    onBackToCurrentWeek: () -> Unit,
-    onFullScreen: () -> Unit,
-) {
-    LargeTopAppBar(
-        title = {
-            Column {
-                Text("周课表总览", fontWeight = FontWeight.ExtraBold)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = "一周课程分布",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Text(" · ", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.outline)
-                    Surface(
-                        color = MaterialTheme.colorScheme.secondaryContainer,
-                        shape = MaterialTheme.shapes.extraSmall,
-                        modifier = Modifier.padding(start = 2.dp),
-                    ) {
-                        Text(
-                            text = "第 ${weekUiState.displayingWeek} 周",
-                            style = MaterialTheme.typography.labelSmall,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                            color = MaterialTheme.colorScheme.onSecondaryContainer,
-                            fontWeight = FontWeight.Bold,
-                        )
-                    }
-                }
-            }
-        },
-        scrollBehavior = scrollBehavior,
-        colors = TopAppBarDefaults.topAppBarColors(
-            containerColor = MaterialTheme.colorScheme.surface,
-            scrolledContainerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(3.dp),
-            navigationIconContentColor = Color.Unspecified,
-            titleContentColor = Color.Unspecified,
-            actionIconContentColor = Color.Unspecified,
-        ),
-        actions = {
-            IconButton(onClick = onPrevWeek) {
-                Icon(imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = "上一周")
-            }
-            IconButton(onClick = onNextWeek) {
-                Icon(imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "下一周")
-            }
-            FilterChip(
-                selected = false,
-                onClick = onBackToCurrentWeek,
-                label = { Text("本周") },
-                modifier = Modifier.padding(end = 8.dp),
-            )
-            IconButton(onClick = onFullScreen) {
-                Icon(imageVector = Icons.Outlined.OpenInFull, contentDescription = "全屏查看周课表")
-            }
-        },
-    )
-}
-
-@Composable
-private fun TodayCoursesContent(state: TodayCoursesUiState, timeTick: Long) {
-    if (!state.termConfigured) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("请先点击右下角“导入课表”并设置当前周次")
-        }
-        return
-    }
-    if (state.courses.isEmpty()) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("第 ${state.currentWeek ?: "-"} 周${if (state.isTomorrow) "明天" else "今天"}暂无课程")
-        }
-        return
-    }
-    LazyColumn(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        items(state.courses, key = { it.id }) { course ->
-            CourseItemCard(course = course, isToday = !state.isTomorrow, refreshTick = timeTick)
-        }
-        item { Spacer(modifier = Modifier.height(12.dp)) }
-    }
-}
-
-@Composable
-private fun WeekCoursesContent(state: WeekCoursesUiState) {
-    if (!state.termConfigured) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("请先导入课表并设置当前周次")
-        }
-        return
-    }
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 12.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        if (state.courses.isEmpty()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(220.dp),
-                contentAlignment = Alignment.Center,
-            ) { Text("第 ${state.displayingWeek} 周暂无课程") }
-        } else {
-            WeekTimetableBoard(courses = state.courses, modifier = Modifier.fillMaxWidth())
-        }
-        Spacer(modifier = Modifier.height(96.dp))
-    }
-}
-
-@Composable
-private fun WeekTimetableFullScreen(
-    state: WeekCoursesUiState,
-    onDismiss: () -> Unit,
-    onPrevWeek: () -> Unit,
-    onNextWeek: () -> Unit,
-    onBackToCurrentWeek: () -> Unit,
-) {
-    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Text("周课表全屏", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold)
-                IconButton(onClick = onDismiss) {
-                    Icon(imageVector = Icons.Outlined.CloseFullscreen, contentDescription = "退出全屏")
-                }
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                IconButton(onClick = onPrevWeek) {
-                    Icon(imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = "上一周")
-                }
-                IconButton(onClick = onNextWeek) {
-                    Icon(imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "下一周")
-                }
-                FilterChip(selected = false, onClick = onBackToCurrentWeek, label = { Text("本周") })
-                Text(
-                    text = "第 ${state.displayingWeek} 周",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            if (state.courses.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(240.dp),
-                    contentAlignment = Alignment.Center,
-                ) { Text("第 ${state.displayingWeek} 周暂无课程") }
-            } else {
-                WeekTimetableBoard(courses = state.courses, modifier = Modifier.fillMaxWidth())
-            }
-            Spacer(modifier = Modifier.height(24.dp))
-        }
-    }
-}
-
-private data class TodayCoursesUiState(
+internal data class TodayCoursesUiState(
     val termConfigured: Boolean = false,
     val isTomorrow: Boolean = false,
     val currentWeek: Int? = null,
@@ -484,7 +241,7 @@ private data class TodayCoursesUiState(
     val courses: List<CourseScheduleEntity> = emptyList(),
 )
 
-private data class WeekCoursesUiState(
+internal data class WeekCoursesUiState(
     val termConfigured: Boolean = false,
     val currentWeek: Int? = null,
     val displayingWeek: Int = 1,

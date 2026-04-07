@@ -10,6 +10,7 @@ import platform.Foundation.NSTemporaryDirectory
 import kotlin.time.Clock
 
 private const val TAG = "ExcelDebugReader"
+
 private val PERIOD_MAP = mapOf(
     "一" to 1,
     "二" to 2,
@@ -24,28 +25,23 @@ private val PERIOD_MAP = mapOf(
 )
 
 actual object ExcelDebugReader {
-    actual suspend fun readAndLog(file: PlatformFile): List<CourseScheduleInstance> {
-        AppLogger.i(TAG, "iOS readAndLog called: file=${file.name}")
-        val extension = file.name.substringAfterLast('.', "").lowercase()
-        if (extension == "xls") {
-            AppLogger.e(TAG, "iOS parser currently supports only xlsx. file=${file.name}")
-            return emptyList()
-        }
-        if (extension != "xlsx") {
-            AppLogger.e(TAG, "Unsupported excel format: .$extension file=${file.name}")
-            return emptyList()
-        }
+    private data class CellEntry(
+        val text: String,
+    )
 
-        return try {
-            parseXlsx(file)
-        } catch (throwable: Throwable) {
-            AppLogger.e(TAG, "Failed to parse xlsx on iOS: ${file.name}", throwable)
-            emptyList()
-        }
+    actual suspend fun readAndLog(file: PlatformFile): List<CourseScheduleInstance> {
+        return runCatching {
+            parseWorkbook(file)
+        }.onFailure { throwable ->
+            AppLogger.e(TAG, "Failed to parse excel: ${file.name}", throwable)
+        }.getOrElse { emptyList() }
     }
 
-    private suspend fun parseXlsx(file: PlatformFile): List<CourseScheduleInstance> {
+    private suspend fun parseWorkbook(file: PlatformFile): List<CourseScheduleInstance> {
         val accessGranted = file.nsUrl.startAccessingSecurityScopedResource()
+        val tempDir = NSTemporaryDirectory().ifBlank { "/tmp/" }
+        val tempPath = "${tempDir.trimEnd('/')}/todayclass-parse-${Clock.System.now().toEpochMilliseconds()}.xlsx".toPath()
+
         try {
             val fileBytes = file.readBytes()
             if (fileBytes.isEmpty()) {
@@ -53,12 +49,14 @@ actual object ExcelDebugReader {
                 return emptyList()
             }
 
-            val tempDir = NSTemporaryDirectory().ifBlank { "/tmp/" }
-            val tempPath = "${tempDir.trimEnd('/')}/todayclass-import-${Clock.System.now().toEpochMilliseconds()}.xlsx".toPath()
-            FileSystem.SYSTEM.write(tempPath) { write(fileBytes) }
+            if (isHtmlTableFile(fileBytes)) {
+                AppLogger.i(TAG, "Detected html-disguised excel: ${file.name}")
+                return parseHtmlWorkbook(fileBytes, file.name)
+            }
 
-            val instances = mutableListOf<CourseScheduleInstance>()
+            FileSystem.SYSTEM.write(tempPath) { write(fileBytes) }
             val zipFs = FileSystem.SYSTEM.openZip(tempPath)
+
             val sharedStringsXml = readZipTextOrNull(
                 zipFs = zipFs,
                 candidates = listOf("xl/sharedStrings.xml", "/xl/sharedStrings.xml"),
@@ -69,115 +67,282 @@ actual object ExcelDebugReader {
                 parseSharedStrings(sharedStringsXml)
             }
 
-            val sheetXml = readZipTextOrNull(
-                zipFs = zipFs,
-                candidates = listOf(
-                    "xl/worksheets/sheet1.xml",
-                    "/xl/worksheets/sheet1.xml",
-                ),
-            ) ?: run {
-                AppLogger.e(TAG, "Cannot find sheet1.xml in xlsx: ${file.name}")
-                runCatching {
-                    val roots = zipFs.list("/".toPath()).joinToString { it.toString() }
-                    AppLogger.d(TAG, "Zip root entries: $roots")
-                }
+            val worksheetPaths = listWorksheetXmlPaths(zipFs)
+            if (worksheetPaths.isEmpty()) {
+                AppLogger.e(TAG, "No worksheet xml files found in xlsx: ${file.name}")
                 return emptyList()
             }
 
-            val rows = parseRows(sheetXml, sharedStrings)
-            val mergeRowSpans = parseMergeRowSpans(sheetXml)
-            val mergedRanges = parseMergedRanges(sheetXml)
-            val header = rows.entries.firstOrNull { (_, cols) ->
-                cols.values.any { it.trim() == "节次/周次" }
-            } ?: run {
-                AppLogger.e(TAG, "Header '节次/周次' not found in xlsx: ${file.name}")
-                return emptyList()
-            }
+            val instances = mutableListOf<CourseScheduleInstance>()
+            AppLogger.i(TAG, "========== Start Excel Parse: ${file.name} ==========")
 
-            val headerRowIndex = header.key
-            val headerColIndex = header.value.entries.firstOrNull { it.value.trim() == "节次/周次" }?.key ?: 0
-            val dayColumns = (1..7).associateWith { day -> headerColIndex + day }
+            worksheetPaths.forEachIndexed { sheetIndex, sheetPath ->
+                val sheetXml = readZipTextOrNull(zipFs, candidates = listOf(sheetPath, "/$sheetPath"))
+                    ?: return@forEachIndexed
+                AppLogger.d(TAG, "[Sheet $sheetIndex] $sheetPath")
 
-            rows.entries
-                .filter { it.key > headerRowIndex }
-                .sortedBy { it.key }
-                .forEach { (rowIndex, cols) ->
-                    val periodText = cols[headerColIndex].orEmpty()
-                    val startPeriod = parseStartPeriod(periodText) ?: return@forEach
+                val rows = parseRows(sheetXml, sharedStrings)
+                val mergedRanges = parseMergedRanges(sheetXml)
 
-                    dayColumns.forEach { (dayOfWeek, dayCol) ->
-                        val rawCell = cols[dayCol].orEmpty()
+                val header = findHeader(rows) ?: return@forEachIndexed
+                val headerRowIndex = header.first
+                val headerColIndex = header.second
+                val dayColumns = (1..7).associateWith { day -> headerColIndex + day }
+                val lastRowIndex = rows.keys.maxOrNull() ?: return@forEachIndexed
+
+                for (rowIndex in (headerRowIndex + 1)..lastRowIndex) {
+                    val periodText = resolveCellText(rows, mergedRanges, rowIndex, headerColIndex)
+                    val startPeriod = parseStartPeriod(periodText) ?: continue
+
+                    dayColumns.forEach { (dayOfWeek, colIndex) ->
+                        val mergeInfo = getMergedCellInfo(mergedRanges, rowIndex, colIndex)
+                        if (mergeInfo != null && !mergeInfo.isTopLeft) return@forEach
+
+                        val rawCell = resolveCellText(rows, mergedRanges, rowIndex, colIndex)
                         if (rawCell.isBlank()) return@forEach
-                        val rowSpan = mergeRowSpans[rowColKey(rowIndex, dayCol)] ?: 1
-                        val slotCount = (rowSpan.coerceAtLeast(1) / 2).coerceAtLeast(1)
+
+                        val slotCount = (mergeInfo?.rowSpan ?: 1).coerceAtLeast(1) / 2
                         if (slotCount >= 2) {
                             AppLogger.d(
                                 TAG,
-                                "Expanded merged cell day=$dayOfWeek row=$rowIndex spanRows=$rowSpan slotCount=$slotCount",
+                                "Expanded merged cell day=$dayOfWeek row=$rowIndex spanRows=${mergeInfo?.rowSpan} slotCount=$slotCount",
                             )
                         }
-                        instances += parseCellToInstances(rawCell, dayOfWeek, startPeriod, slotCount)
-                    }
-                }
 
-            // iOS XML 某些模板下，课时行锚点不稳定，补一轮固定双节行兜底（避免漏掉周四 9-10 等课程）
-            val fixedSlotRows = listOf(
-                1 to (headerRowIndex + 1),
-                3 to (headerRowIndex + 3),
-                5 to (headerRowIndex + 5),
-                7 to (headerRowIndex + 7),
-                9 to (headerRowIndex + 9),
-            )
-            val existedKeys = instances.mapTo(mutableSetOf()) { it.instanceKey() }
-            fixedSlotRows.forEach { (startPeriod, rowIndex) ->
-                dayColumns.forEach { (dayOfWeek, dayCol) ->
-                    val rawCell = getMergedCellText(
-                        rowIndex = rowIndex,
-                        colIndex = dayCol,
-                        rows = rows,
-                        mergedRanges = mergedRanges,
-                    )
-                    if (rawCell.isBlank()) return@forEach
-                    val parsed = parseCellToInstances(
-                        rawCell = rawCell,
-                        dayOfWeek = dayOfWeek,
-                        startPeriod = startPeriod,
-                        slotCount = 1,
-                    )
-                    parsed.forEach { item ->
-                        if (existedKeys.add(item.instanceKey())) {
-                            AppLogger.d(
-                                TAG,
-                                "Fallback row-map added: day=${item.dayOfWeek}, period=${item.startPeriod}, week=${item.week}, course=${item.courseName}",
-                            )
-                            instances += item
-                        }
+                        instances += parseCellToInstances(
+                            rawCell = rawCell,
+                            dayOfWeek = dayOfWeek,
+                            startPeriod = startPeriod,
+                            slotCount = slotCount.coerceAtLeast(1),
+                        )
                     }
                 }
             }
 
-            AppLogger.i(TAG, "iOS parsed instances count=${instances.size}")
-            val periodSummary = instances
-                .groupingBy { it.startPeriod }
-                .eachCount()
-                .entries
-                .sortedBy { it.key }
-                .joinToString(prefix = "{", postfix = "}") { "${it.key}=${it.value}" }
-            AppLogger.d(TAG, "iOS period distribution=$periodSummary")
+            AppLogger.i(TAG, "Parsed instances count=${instances.size}")
             instances.forEachIndexed { index, item ->
                 AppLogger.d(
                     TAG,
                     "[$index] day=${item.dayOfWeek}, period=${item.startPeriod}, week=${item.week}, " +
-                        "course=${item.courseName}, teacher=${item.teacher}, room=${item.location}"
+                        "course=${item.courseName}, teacher=${item.teacher}, room=${item.location}",
                 )
             }
-            runCatching { FileSystem.SYSTEM.delete(tempPath) }
+            AppLogger.i(TAG, "========== End Excel Parse ==========")
             return instances
         } finally {
+            runCatching { FileSystem.SYSTEM.delete(tempPath) }
             if (accessGranted) {
                 file.nsUrl.stopAccessingSecurityScopedResource()
             }
         }
+    }
+
+    private data class HtmlMergedRange(
+        val firstRow: Int,
+        val lastRow: Int,
+        val firstCol: Int,
+        val lastCol: Int,
+    ) {
+        fun isInRange(rowIndex: Int, colIndex: Int): Boolean {
+            return rowIndex in firstRow..lastRow && colIndex in firstCol..lastCol
+        }
+    }
+
+    private data class HtmlMergedCellInfo(
+        val firstRow: Int,
+        val firstCol: Int,
+        val rowSpan: Int,
+        val isTopLeft: Boolean,
+    )
+
+    private fun isHtmlTableFile(bytes: ByteArray): Boolean {
+        val head = bytes.copyOf(minOf(bytes.size, 4096)).decodeToString().lowercase()
+        return "<table" in head || "<html" in head
+    }
+
+    private fun parseHtmlWorkbook(bytes: ByteArray, fileName: String): List<CourseScheduleInstance> {
+        val html = bytes.decodeToString()
+        val rows = parseHtmlRows(html)
+        if (rows.isEmpty()) return emptyList()
+        val mergedRanges = parseHtmlMergedRanges(html)
+
+        val header = findHeaderTextRows(rows) ?: return emptyList()
+        val headerRowIndex = header.first
+        val headerColIndex = header.second
+        val dayColumns = (1..7).associateWith { day -> headerColIndex + day }
+        val lastRowIndex = rows.keys.maxOrNull() ?: return emptyList()
+
+        val instances = mutableListOf<CourseScheduleInstance>()
+        AppLogger.i(TAG, "========== Start Html Excel Parse: $fileName ==========")
+        for (rowIndex in (headerRowIndex + 1)..lastRowIndex) {
+            val periodText = resolveHtmlCellText(rows, mergedRanges, rowIndex, headerColIndex)
+            val startPeriod = parseStartPeriod(periodText) ?: continue
+
+            dayColumns.forEach { (dayOfWeek, colIndex) ->
+                val mergeInfo = getHtmlMergedCellInfo(mergedRanges, rowIndex, colIndex)
+                if (mergeInfo != null && !mergeInfo.isTopLeft) return@forEach
+                val rawCell = resolveHtmlCellText(rows, mergedRanges, rowIndex, colIndex)
+                if (rawCell.isBlank()) return@forEach
+                val slotCount = (mergeInfo?.rowSpan ?: 1).coerceAtLeast(1) / 2
+                instances += parseCellToInstances(
+                    rawCell = rawCell,
+                    dayOfWeek = dayOfWeek,
+                    startPeriod = startPeriod,
+                    slotCount = slotCount.coerceAtLeast(1),
+                )
+            }
+        }
+        AppLogger.i(TAG, "Parsed html instances count=${instances.size}")
+        AppLogger.i(TAG, "========== End Html Excel Parse ==========")
+        return instances
+    }
+
+    private fun parseHtmlRows(html: String): Map<Int, Map<Int, String>> {
+        val rows = mutableMapOf<Int, MutableMap<Int, String>>()
+        val occupied = mutableSetOf<Long>()
+        val trRegex = Regex("<tr[^>]*>(.*?)</tr>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
+        val tdRegex = Regex("<t[dh]([^>]*)>(.*?)</t[dh]>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
+        val rowSpanRegex = Regex("rowspan\\s*=\\s*['\\\"]?(\\d+)", RegexOption.IGNORE_CASE)
+        val colSpanRegex = Regex("colspan\\s*=\\s*['\\\"]?(\\d+)", RegexOption.IGNORE_CASE)
+
+        var rowIndex = 0
+        trRegex.findAll(html).forEach { tr ->
+            val cols = mutableMapOf<Int, String>()
+            var colIndex = 0
+            tdRegex.findAll(tr.groupValues[1]).forEach { td ->
+                while (occupied.contains(cellKey(rowIndex, colIndex))) colIndex++
+                val attrs = td.groupValues[1]
+                val body = td.groupValues[2]
+                val rowSpan = rowSpanRegex.find(attrs)?.groupValues?.get(1)?.toIntOrNull()?.coerceAtLeast(1) ?: 1
+                val colSpan = colSpanRegex.find(attrs)?.groupValues?.get(1)?.toIntOrNull()?.coerceAtLeast(1) ?: 1
+                val text = htmlCellToText(body)
+                cols[colIndex] = text
+                for (r in rowIndex until (rowIndex + rowSpan)) {
+                    for (c in colIndex until (colIndex + colSpan)) {
+                        occupied += cellKey(r, c)
+                    }
+                }
+                colIndex++
+                while (occupied.contains(cellKey(rowIndex, colIndex))) colIndex++
+            }
+            rows[rowIndex] = cols
+            rowIndex++
+        }
+        return rows
+    }
+
+    private fun parseHtmlMergedRanges(html: String): List<HtmlMergedRange> {
+        val ranges = mutableListOf<HtmlMergedRange>()
+        val occupied = mutableSetOf<Long>()
+        val trRegex = Regex("<tr[^>]*>(.*?)</tr>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
+        val tdRegex = Regex("<t[dh]([^>]*)>(.*?)</t[dh]>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
+        val rowSpanRegex = Regex("rowspan\\s*=\\s*['\\\"]?(\\d+)", RegexOption.IGNORE_CASE)
+        val colSpanRegex = Regex("colspan\\s*=\\s*['\\\"]?(\\d+)", RegexOption.IGNORE_CASE)
+
+        var rowIndex = 0
+        trRegex.findAll(html).forEach { tr ->
+            var colIndex = 0
+            tdRegex.findAll(tr.groupValues[1]).forEach { td ->
+                while (occupied.contains(cellKey(rowIndex, colIndex))) colIndex++
+                val attrs = td.groupValues[1]
+                val rowSpan = rowSpanRegex.find(attrs)?.groupValues?.get(1)?.toIntOrNull()?.coerceAtLeast(1) ?: 1
+                val colSpan = colSpanRegex.find(attrs)?.groupValues?.get(1)?.toIntOrNull()?.coerceAtLeast(1) ?: 1
+                if (rowSpan > 1 || colSpan > 1) {
+                    ranges += HtmlMergedRange(
+                        firstRow = rowIndex,
+                        lastRow = rowIndex + rowSpan - 1,
+                        firstCol = colIndex,
+                        lastCol = colIndex + colSpan - 1,
+                    )
+                }
+                for (r in rowIndex until (rowIndex + rowSpan)) {
+                    for (c in colIndex until (colIndex + colSpan)) {
+                        occupied += cellKey(r, c)
+                    }
+                }
+                colIndex++
+                while (occupied.contains(cellKey(rowIndex, colIndex))) colIndex++
+            }
+            rowIndex++
+        }
+        return ranges
+    }
+
+    private fun htmlCellToText(body: String): String {
+        val unescaped = body
+            .replace(Regex("<br\\s*/?>", RegexOption.IGNORE_CASE), "\n")
+            .replace(Regex("<[^>]+>"), "")
+            .replace("&nbsp;", " ")
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&quot;", "\"")
+            .replace("&apos;", "'")
+            .replace("&amp;", "&")
+        return decodeNumericHtmlEntities(unescaped).trim()
+    }
+
+    private fun decodeNumericHtmlEntities(text: String): String {
+        var result = text
+        result = Regex("&#(\\d+);").replace(result) { match ->
+            val code = match.groupValues[1].toIntOrNull() ?: return@replace match.value
+            code.toChar().toString()
+        }
+        result = Regex("&#x([0-9a-fA-F]+);").replace(result) { match ->
+            val code = match.groupValues[1].toIntOrNull(16) ?: return@replace match.value
+            code.toChar().toString()
+        }
+        return result
+    }
+
+    private fun resolveHtmlCellText(
+        rows: Map<Int, Map<Int, String>>,
+        mergedRanges: List<HtmlMergedRange>,
+        rowIndex: Int,
+        colIndex: Int,
+    ): String {
+        val raw = rows[rowIndex]?.get(colIndex).orEmpty().trim()
+        if (raw.isNotBlank()) return raw
+        val merge = getHtmlMergedCellInfo(mergedRanges, rowIndex, colIndex) ?: return ""
+        return rows[merge.firstRow]?.get(merge.firstCol).orEmpty().trim()
+    }
+
+    private fun getHtmlMergedCellInfo(
+        mergedRanges: List<HtmlMergedRange>,
+        rowIndex: Int,
+        colIndex: Int,
+    ): HtmlMergedCellInfo? {
+        val range = mergedRanges.firstOrNull { it.isInRange(rowIndex, colIndex) } ?: return null
+        return HtmlMergedCellInfo(
+            firstRow = range.firstRow,
+            firstCol = range.firstCol,
+            rowSpan = range.lastRow - range.firstRow + 1,
+            isTopLeft = rowIndex == range.firstRow && colIndex == range.firstCol,
+        )
+    }
+
+    private fun findHeaderTextRows(rows: Map<Int, Map<Int, String>>): Pair<Int, Int>? {
+        rows.keys.sorted().forEach { row ->
+            val cols = rows[row] ?: return@forEach
+            cols.keys.sorted().forEach { col ->
+                if (isScheduleHeaderText(cols[col].orEmpty())) {
+                    return row to col
+                }
+            }
+        }
+        return null
+    }
+
+    private fun isScheduleHeaderText(text: String): Boolean {
+        val normalized = text
+            .trim()
+            .replace(Regex("\\s+"), "")
+            .replace("／", "/")
+            .replace("\\", "/")
+        return normalized == "节次/周次" || (normalized.contains("节次") && normalized.contains("周次"))
+    }
+
+    private fun cellKey(rowIndex: Int, colIndex: Int): Long {
+        return (rowIndex.toLong() shl 32) or (colIndex.toLong() and 0xffffffffL)
     }
 
     private fun readZipTextOrNull(zipFs: FileSystem, candidates: List<String>): String? {
@@ -190,26 +355,50 @@ actual object ExcelDebugReader {
         return null
     }
 
+    private fun listWorksheetXmlPaths(zipFs: FileSystem): List<String> {
+        val roots = listOf("xl/worksheets", "/xl/worksheets")
+        val entries = mutableListOf<String>()
+
+        roots.forEach { rawRoot ->
+            val root = rawRoot.toPath()
+            if (!zipFs.exists(root)) return@forEach
+            runCatching {
+                zipFs.list(root).forEach { path ->
+                    val name = path.name
+                    if (name.startsWith("sheet") && name.endsWith(".xml")) {
+                        entries += "xl/worksheets/$name"
+                    }
+                }
+            }
+        }
+
+        return entries.distinct().sortedBy { sheetOrder(it) }
+    }
+
+    private fun sheetOrder(path: String): Int {
+        val number = Regex("sheet(\\d+)\\.xml").find(path.substringAfterLast('/'))?.groupValues?.getOrNull(1)
+        return number?.toIntOrNull() ?: Int.MAX_VALUE
+    }
+
     private fun parseSharedStrings(xml: String): List<String> {
         val siRegex = Regex("<si[^>]*>(.*?)</si>", setOf(RegexOption.DOT_MATCHES_ALL))
         val tRegex = Regex("<t[^>]*>(.*?)</t>", setOf(RegexOption.DOT_MATCHES_ALL))
         return siRegex.findAll(xml).map { siMatch ->
             val siBody = siMatch.groupValues[1]
-            tRegex.findAll(siBody)
-                .map { unescapeXml(it.groupValues[1]) }
-                .joinToString(separator = "")
-                .trim()
+            tRegex.findAll(siBody).joinToString(separator = "") {
+                unescapeXml(it.groupValues[1])
+            }.trim()
         }.toList()
     }
 
     private fun parseRows(
         sheetXml: String,
         sharedStrings: List<String>,
-    ): Map<Int, Map<Int, String>> {
-        val rows = mutableMapOf<Int, MutableMap<Int, String>>()
+    ): Map<Int, Map<Int, CellEntry>> {
+        val rows = mutableMapOf<Int, MutableMap<Int, CellEntry>>()
         val rowRegex = Regex("<row([^>]*)>(.*?)</row>", setOf(RegexOption.DOT_MATCHES_ALL))
         val rowRefRegex = Regex("r=\"(\\d+)\"")
-        val cellRegex = Regex("<c([^>]*)>(.*?)</c>|<c([^>]*)\\s*/>", setOf(RegexOption.DOT_MATCHES_ALL))
+        val cellRegex = Regex("<c\\b([^>]*)\\s*/>|<c\\b([^>]*)>(.*?)</c>", setOf(RegexOption.DOT_MATCHES_ALL))
         val refRegex = Regex("r=\"([A-Z]+)(\\d+)\"")
         val typeRegex = Regex("t=\"([^\"]+)\"")
         val vRegex = Regex("<v[^>]*>(.*?)</v>", setOf(RegexOption.DOT_MATCHES_ALL))
@@ -223,13 +412,17 @@ actual object ExcelDebugReader {
             val rowIndex = rowRefRegex.find(rowAttrs)?.groupValues?.get(1)?.toIntOrNull()?.minus(1)
                 ?: nextRowIndex
             nextRowIndex = rowIndex + 1
-            val cols = mutableMapOf<Int, String>()
+
+            val cols = mutableMapOf<Int, CellEntry>()
             var nextColIndex = 0
 
             cellRegex.findAll(rowBody).forEach { cellMatch ->
-                val attrs = if (cellMatch.groupValues[1].isNotBlank()) cellMatch.groupValues[1] else cellMatch.groupValues[3]
-                val body = cellMatch.groupValues[2]
-                val colIndex = refRegex.find(attrs)?.groupValues?.get(1)?.let(::excelColumnToIndex) ?: nextColIndex
+                val isSelfClosing = cellMatch.groupValues[1].isNotBlank()
+                val attrs = if (isSelfClosing) cellMatch.groupValues[1] else cellMatch.groupValues[2]
+                val body = if (isSelfClosing) "" else cellMatch.groupValues[3]
+
+                val colIndex = refRegex.find(attrs)?.groupValues?.get(1)?.let(::excelColumnToIndex)
+                    ?: nextColIndex
                 nextColIndex = colIndex + 1
                 val cellType = typeRegex.find(attrs)?.groupValues?.get(1).orEmpty()
 
@@ -250,8 +443,9 @@ actual object ExcelDebugReader {
                     }
                 }.trim()
 
-                cols[colIndex] = text
+                cols[colIndex] = CellEntry(text = text)
             }
+
             rows[rowIndex] = cols
         }
         return rows
@@ -265,32 +459,83 @@ actual object ExcelDebugReader {
         return result - 1
     }
 
-private fun parseStartPeriod(periodText: String): Int? {
-        if (periodText.isBlank()) return null
-        val normalized = periodText
-            .replace('\u00A0', ' ')
-            .replace(Regex("\\s+"), "")
-            .trim()
-        val token = Regex("第([一二三四五六七八九十0-9]+)节").find(normalized)
-            ?.groupValues
-            ?.getOrNull(1)
-            ?: return null
-
-        token.toIntOrNull()?.let { return it }
-        return chinesePeriodToInt(token)
+    private data class MergedRange(
+        val firstRow: Int,
+        val lastRow: Int,
+        val firstCol: Int,
+        val lastCol: Int,
+    ) {
+        fun isInRange(rowIndex: Int, colIndex: Int): Boolean {
+            return rowIndex in firstRow..lastRow && colIndex in firstCol..lastCol
+        }
     }
 
-    private fun chinesePeriodToInt(token: String): Int? {
-        if (token.isBlank()) return null
-        PERIOD_MAP[token]?.let { return it }
-        // 支持“十一/十二”这类格式，避免后续课表模板变动时再出问题
-        return when {
-            token == "十一" -> 11
-            token == "十二" -> 12
-            token.startsWith("十") -> 10 + (PERIOD_MAP[token.removePrefix("十")] ?: return 10)
-            token.endsWith("十") -> (PERIOD_MAP[token.removeSuffix("十")] ?: return null) * 10
-            else -> null
+    private data class MergedCellInfo(
+        val firstRow: Int,
+        val firstCol: Int,
+        val rowSpan: Int,
+        val isTopLeft: Boolean,
+    )
+
+    private fun parseMergedRanges(sheetXml: String): List<MergedRange> {
+        val mergeRegex = Regex("<mergeCell[^>]*ref=\"([A-Z]+)(\\d+):([A-Z]+)(\\d+)\"[^>]*/?>")
+        return mergeRegex.findAll(sheetXml).mapNotNull { match ->
+            val firstCol = excelColumnToIndex(match.groupValues[1])
+            val firstRow = match.groupValues[2].toIntOrNull()?.minus(1) ?: return@mapNotNull null
+            val lastCol = excelColumnToIndex(match.groupValues[3])
+            val lastRow = match.groupValues[4].toIntOrNull()?.minus(1) ?: return@mapNotNull null
+            MergedRange(firstRow, lastRow, firstCol, lastCol)
+        }.toList()
+    }
+
+    private fun getMergedCellInfo(
+        mergedRanges: List<MergedRange>,
+        rowIndex: Int,
+        colIndex: Int,
+    ): MergedCellInfo? {
+        val range = mergedRanges.firstOrNull { it.isInRange(rowIndex, colIndex) } ?: return null
+        return MergedCellInfo(
+            firstRow = range.firstRow,
+            firstCol = range.firstCol,
+            rowSpan = range.lastRow - range.firstRow + 1,
+            isTopLeft = rowIndex == range.firstRow && colIndex == range.firstCol,
+        )
+    }
+
+    private fun resolveCellText(
+        rows: Map<Int, Map<Int, CellEntry>>,
+        mergedRanges: List<MergedRange>,
+        rowIndex: Int,
+        colIndex: Int,
+    ): String {
+        val raw = rows[rowIndex]?.get(colIndex)?.text.orEmpty().trim()
+        if (raw.isNotBlank()) return raw
+
+        val mergeInfo = getMergedCellInfo(mergedRanges, rowIndex, colIndex) ?: return ""
+        return rows[mergeInfo.firstRow]?.get(mergeInfo.firstCol)?.text.orEmpty().trim()
+    }
+
+    private fun findHeader(rows: Map<Int, Map<Int, CellEntry>>): Pair<Int, Int>? {
+        rows.keys.sorted().forEach { rowIndex ->
+            val cols = rows[rowIndex] ?: return@forEach
+            cols.keys.sorted().forEach { colIndex ->
+                if (isScheduleHeaderText(cols[colIndex]?.text.orEmpty())) {
+                    return rowIndex to colIndex
+                }
+            }
         }
+        return null
+    }
+
+    private fun parseStartPeriod(periodText: String): Int? {
+        val normalized = periodText.trim().replace(Regex("\\s+"), "")
+        Regex("第([一二三四五六七八九十]+)节").find(normalized)?.let { matched ->
+            return PERIOD_MAP[matched.groupValues[1]]
+        }
+        Regex("第?(\\d+)(?:-(\\d+))?节?").find(normalized)?.let { matched ->
+            return matched.groupValues[1].toIntOrNull()
+        }
+        return null
     }
 
     private fun parseCellToInstances(
@@ -300,9 +545,8 @@ private fun parseStartPeriod(periodText: String): Int? {
         slotCount: Int,
     ): List<CourseScheduleInstance> {
         val lines = rawCell
-            .replace("&#10;", "\n")
             .split('\n')
-            .map { normalizeLine(it) }
+            .map { it.trim() }
             .filter { it.isNotEmpty() }
 
         if (lines.isEmpty()) return emptyList()
@@ -311,7 +555,7 @@ private fun parseStartPeriod(periodText: String): Int? {
         var cursor = 0
         while (cursor < lines.size) {
             val courseLine = lines[cursor]
-            val scheduleLine = if (cursor + 1 < lines.size && isScheduleLine(lines[cursor + 1])) {
+            val scheduleLine = if (cursor + 1 < lines.size && lines[cursor + 1].startsWith("(")) {
                 lines[cursor + 1]
             } else {
                 ""
@@ -335,12 +579,6 @@ private fun parseStartPeriod(periodText: String): Int? {
                 val (courseName, courseCode, teacher) = parseCourseLine(pair.first)
                 val (weekExpr, location) = parseScheduleLine(pair.second)
                 val weeks = parseWeekExpression(weekExpr)
-                if (weeks.isEmpty()) {
-                    AppLogger.d(
-                        TAG,
-                        "Skip course (no weeks parsed): day=$dayOfWeek period=$blockStartPeriod course=$courseName schedule='${pair.second}'",
-                    )
-                }
                 weeks.forEach { week ->
                     results += CourseScheduleInstance(
                         courseName = courseName,
@@ -359,64 +597,6 @@ private fun parseStartPeriod(periodText: String): Int? {
         return results
     }
 
-    private fun parseMergeRowSpans(sheetXml: String): Map<Long, Int> {
-        val result = mutableMapOf<Long, Int>()
-        val mergeRegex = Regex("<mergeCell[^>]*ref=\"([A-Z]+)(\\d+):([A-Z]+)(\\d+)\"[^>]*/?>")
-        mergeRegex.findAll(sheetXml).forEach { match ->
-            val startCol = match.groupValues[1]
-            val startRow = match.groupValues[2].toIntOrNull()?.minus(1) ?: return@forEach
-            val endCol = match.groupValues[3]
-            val endRow = match.groupValues[4].toIntOrNull()?.minus(1) ?: return@forEach
-            if (startCol != endCol) return@forEach
-            val span = (endRow - startRow + 1).coerceAtLeast(1)
-            result[rowColKey(startRow, excelColumnToIndex(startCol))] = span
-        }
-        return result
-    }
-
-    private fun rowColKey(rowIndex: Int, colIndex: Int): Long {
-        return (rowIndex.toLong() shl 32) or (colIndex.toLong() and 0xffffffffL)
-    }
-
-    private data class MergedRange(
-        val startRow: Int,
-        val endRow: Int,
-        val startCol: Int,
-        val endCol: Int,
-    ) {
-        fun contains(rowIndex: Int, colIndex: Int): Boolean {
-            return rowIndex in startRow..endRow && colIndex in startCol..endCol
-        }
-    }
-
-    private fun parseMergedRanges(sheetXml: String): List<MergedRange> {
-        val mergeRegex = Regex("<mergeCell[^>]*ref=\"([A-Z]+)(\\d+):([A-Z]+)(\\d+)\"[^>]*/?>")
-        return mergeRegex.findAll(sheetXml).mapNotNull { match ->
-            val startCol = excelColumnToIndex(match.groupValues[1])
-            val startRow = match.groupValues[2].toIntOrNull()?.minus(1) ?: return@mapNotNull null
-            val endCol = excelColumnToIndex(match.groupValues[3])
-            val endRow = match.groupValues[4].toIntOrNull()?.minus(1) ?: return@mapNotNull null
-            MergedRange(
-                startRow = startRow,
-                endRow = endRow,
-                startCol = startCol,
-                endCol = endCol,
-            )
-        }.toList()
-    }
-
-    private fun getMergedCellText(
-        rowIndex: Int,
-        colIndex: Int,
-        rows: Map<Int, Map<Int, String>>,
-        mergedRanges: List<MergedRange>,
-    ): String {
-        val direct = rows[rowIndex]?.get(colIndex).orEmpty().trim()
-        if (direct.isNotBlank()) return direct
-        val merged = mergedRanges.firstOrNull { it.contains(rowIndex, colIndex) } ?: return ""
-        return rows[merged.startRow]?.get(merged.startCol).orEmpty().trim()
-    }
-
     private fun parseCourseLine(line: String): Triple<String, String, String> {
         val match = Regex("^(.*?)\\s*\\((.*?)\\)\\s*\\((.*?)\\)$").find(line)
         if (match != null) {
@@ -431,26 +611,7 @@ private fun parseStartPeriod(periodText: String): Int? {
 
     private fun parseScheduleLine(line: String): Pair<String, String> {
         if (line.isBlank()) return "" to ""
-        val normalized = line
-            .replace('\u00A0', ' ')
-            .replace("\u200B", "")
-            .replace("\uFEFF", "")
-            .trim()
-            .removePrefix("(")
-            .removePrefix("（")
-            .removeSuffix(")")
-            .removeSuffix("）")
-            .trim()
-
-        // 优先从整行中抽取周次表达式（兼容未按标准括号包裹的情况）
-        val weekExprPattern = Regex("(\\d+(?:-\\d+)?(?:单|双)?(?:\\s*[，,、]\\s*\\d+(?:-\\d+)?(?:单|双)?)*)")
-        val weekMatch = weekExprPattern.find(normalized)
-        if (weekMatch != null) {
-            val weekExpr = weekMatch.value.replace(Regex("\\s+"), "")
-            val location = normalized.removeRange(weekMatch.range).trim()
-            return weekExpr to location
-        }
-
+        val normalized = line.trim().removePrefix("(").removeSuffix(")").trim()
         val splitIndex = normalized.indexOfFirst { it.isWhitespace() }
         if (splitIndex <= 0) return normalized to ""
         val weekExpr = normalized.substring(0, splitIndex).trim()
@@ -461,13 +622,9 @@ private fun parseStartPeriod(periodText: String): Int? {
     private fun parseWeekExpression(weekExpr: String): List<Int> {
         if (weekExpr.isBlank()) return emptyList()
         val weeks = mutableSetOf<Int>()
-        val tokens = weekExpr
-            .replace('\u00A0', ' ')
-            .split(Regex("[,，、]"))
-            .map { it.trim() }
-            .filter { it.isNotEmpty() }
+        val tokens = weekExpr.split(',').map { it.trim() }.filter { it.isNotEmpty() }
         tokens.forEach { token ->
-            val rangeMatch = Regex("^(\\d+)-(\\d+)(单|双)?$").find(token)
+            val rangeMatch = Regex("^(\\d+)-(\\d+)([单双])?$").find(token)
             if (rangeMatch != null) {
                 val start = rangeMatch.groupValues[1].toInt()
                 val end = rangeMatch.groupValues[2].toInt()
@@ -477,7 +634,7 @@ private fun parseStartPeriod(periodText: String): Int? {
                 }
                 return@forEach
             }
-            val singleMatch = Regex("^(\\d+)(单|双)?$").find(token)
+            val singleMatch = Regex("^(\\d+)([单双])?$").find(token)
             if (singleMatch != null) {
                 val week = singleMatch.groupValues[1].toInt()
                 val parity = singleMatch.groupValues[2]
@@ -503,28 +660,5 @@ private fun parseStartPeriod(periodText: String): Int? {
             .replace("&quot;", "\"")
             .replace("&apos;", "'")
             .replace("&amp;", "&")
-    }
-
-    private fun normalizeLine(line: String): String {
-        return line
-            .replace('\u00A0', ' ')
-            .replace("\u200B", "")
-            .replace("\uFEFF", "")
-            .trim()
-    }
-
-    private fun isScheduleLine(line: String): Boolean {
-        val normalized = normalizeLine(line)
-        if ((normalized.startsWith("(") && normalized.endsWith(")")) ||
-            (normalized.startsWith("（") && normalized.endsWith("）"))
-        ) {
-            return true
-        }
-        // 兼容非括号格式：只要包含周次表达式就视为课时安排行
-        return Regex("\\d+(?:-\\d+)?(?:单|双)?").containsMatchIn(normalized)
-    }
-
-    private fun CourseScheduleInstance.instanceKey(): String {
-        return "$courseName|$courseCode|$teacher|$dayOfWeek|$startPeriod|$periodCount|$week|$location"
     }
 }

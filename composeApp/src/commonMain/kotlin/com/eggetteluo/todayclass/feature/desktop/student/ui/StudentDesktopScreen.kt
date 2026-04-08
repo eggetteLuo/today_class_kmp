@@ -11,6 +11,7 @@ import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -19,6 +20,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -63,6 +65,7 @@ private val studentTabs = listOf(
 fun StudentDesktopScreen() {
     val scope = rememberCoroutineScope()
     val repository = koinInject<CourseScheduleRepository>()
+    val snackbarHostState = remember { SnackbarHostState() }
 
     var showWeekDialog by rememberSaveable { mutableStateOf(false) }
     var selectedTabIndex by rememberSaveable { mutableStateOf(0) }
@@ -146,6 +149,10 @@ fun StudentDesktopScreen() {
                 if (pickedFile != null && selectedWeek != null) {
                     val instances = ExcelDebugReader.readAndLog(pickedFile)
                     AppLogger.i("StudentDesktop", "Excel instances parsed: ${instances.size}")
+                    if (instances.isEmpty()) {
+                        snackbarHostState.showSnackbar("导入失败：未解析到课程数据，已保留原有课表")
+                        return@launch
+                    }
                     repository.replaceAll(instances.map { it.toEntity() })
                     AppLogger.i("StudentDesktop", "Saved instances into Room: ${instances.size}")
 
@@ -169,6 +176,7 @@ fun StudentDesktopScreen() {
         topBarContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
         selectedTabIndex = selectedTabIndex,
         onTabSelected = { selectedTabIndex = it },
+        snackbarHostState = snackbarHostState,
         scaffoldModifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = { selectedTabIndex, currentTab ->
             when (selectedTabIndex) {

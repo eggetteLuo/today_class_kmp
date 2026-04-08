@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import com.eggetteluo.todayclass.core.database.entity.CourseScheduleEntity
 
 @Dao
@@ -34,4 +35,10 @@ interface CourseScheduleDao {
 
     @Query("DELETE FROM course_schedule")
     suspend fun clearAll()
+
+    @Transaction
+    suspend fun replaceAllTransactional(items: List<CourseScheduleEntity>) {
+        clearAll()
+        insertAll(items)
+    }
 }

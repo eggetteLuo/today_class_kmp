@@ -8,6 +8,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -33,6 +35,7 @@ fun RoleDesktopScaffold(
     selectedTabIndex: Int? = null,
     onTabSelected: ((Int) -> Unit)? = null,
     floatingActionButton: @Composable (() -> Unit)? = null,
+    snackbarHostState: SnackbarHostState? = null,
     scaffoldModifier: Modifier = Modifier,
     topBar: (@Composable (selectedTabIndex: Int, currentTab: DesktopTab) -> Unit)? = null,
     content: (@Composable (selectedTabIndex: Int, currentTab: DesktopTab) -> Unit)? = null,
@@ -82,6 +85,12 @@ fun RoleDesktopScaffold(
         },
         floatingActionButton = {
             floatingActionButton?.invoke()
+        },
+        snackbarHost = {
+            val hostState = snackbarHostState
+            if (hostState != null) {
+                SnackbarHost(hostState = hostState)
+            }
         },
     ) { innerPadding ->
         Box(

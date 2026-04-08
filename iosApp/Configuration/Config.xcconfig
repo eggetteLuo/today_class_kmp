@@ -1,7 +1,7 @@
 TEAM_ID=
 
 PRODUCT_NAME=TodayClassKMP
-PRODUCT_BUNDLE_IDENTIFIER=com.eggetteluo.todayclasskmp.TodayClassKMP$(TEAM_ID)
+PRODUCT_BUNDLE_IDENTIFIER=com.eggetteluo.todayclass.ios
 INFOPLIST_KEY_CFBundleDisplayName=今日课表
 INFOPLIST_KEY_CFBundleName=今日课表
 

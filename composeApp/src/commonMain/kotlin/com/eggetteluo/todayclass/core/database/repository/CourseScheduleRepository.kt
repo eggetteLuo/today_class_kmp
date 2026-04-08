@@ -7,8 +7,8 @@ class CourseScheduleRepository(
     private val dao: CourseScheduleDao,
 ) {
     suspend fun replaceAll(items: List<CourseScheduleEntity>) {
-        dao.clearAll()
-        dao.insertAll(items)
+        if (items.isEmpty()) return
+        dao.replaceAllTransactional(items)
     }
 
     suspend fun getAll(): List<CourseScheduleEntity> = dao.getAll()

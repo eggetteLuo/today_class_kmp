@@ -1,6 +1,5 @@
 package com.eggetteluo.todayclass.feature.desktop.student.ui.components
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -17,6 +16,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -37,12 +37,13 @@ fun WeekTimetableBoard(
     val periodColWidth = 60.dp
     val colWidth = 120.dp
     val rowHeight = 108.dp
+    val periodCellColor = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp)
+    val headerCellColor = periodCellColor
+    val subtleBorder = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)
 
     Column(modifier = modifier.horizontalScroll(scrollState)) {
         Row(
-            modifier = Modifier
-                .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f))
-                .padding(vertical = 8.dp),
+            modifier = Modifier.padding(vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Surface(
@@ -50,14 +51,19 @@ fun WeekTimetableBoard(
                     .width(periodColWidth)
                     .padding(horizontal = 4.dp),
                 shape = RoundedCornerShape(10.dp),
-                color = MaterialTheme.colorScheme.secondaryContainer,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                color = headerCellColor,
+                border = BorderStroke(1.dp, subtleBorder),
             ) {
                 Box(
                     modifier = Modifier.padding(vertical = 6.dp),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text("节次", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                    Text(
+                        "节次",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
             DAY_LABELS.forEach { label ->
@@ -66,14 +72,19 @@ fun WeekTimetableBoard(
                         .width(colWidth)
                         .padding(horizontal = 4.dp),
                     shape = RoundedCornerShape(10.dp),
-                    color = MaterialTheme.colorScheme.secondaryContainer,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                    color = headerCellColor,
+                    border = BorderStroke(1.dp, subtleBorder),
                 ) {
                     Box(
                         modifier = Modifier.padding(vertical = 6.dp),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Text(label, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                        Text(
+                            label,
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
                 }
             }
@@ -92,15 +103,15 @@ fun WeekTimetableBoard(
                         .height(rowHeight)
                         .padding(horizontal = 4.dp, vertical = 4.dp),
                     shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.55f),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                    color = periodCellColor,
+                    border = BorderStroke(1.dp, subtleBorder),
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Text(
                             "$startPeriod-$endPeriod",
                             style = MaterialTheme.typography.labelLarge,
                             fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onTertiaryContainer,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }

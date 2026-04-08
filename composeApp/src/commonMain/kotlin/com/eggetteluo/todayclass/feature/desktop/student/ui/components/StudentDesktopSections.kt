@@ -27,23 +27,34 @@ import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Today
 import androidx.compose.material.icons.outlined.ViewWeek
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExposedDropdownMenuAnchorType
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.eggetteluo.todayclass.core.theme.ThemeAccent
 import com.eggetteluo.todayclass.feature.desktop.student.ui.TodayCoursesUiState
 import com.eggetteluo.todayclass.feature.desktop.student.ui.WeekCoursesUiState
 
@@ -57,14 +68,21 @@ internal fun TodayTopBar(
     LargeTopAppBar(
         title = {
             Column {
-                Text(text = if (isTomorrow) "明日预告" else "今日课表", fontWeight = FontWeight.ExtraBold)
+                Text(
+                    text = if (isTomorrow) "明日预告" else "今日课表",
+                    fontWeight = FontWeight.ExtraBold
+                )
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = todayUiState.displayDateString,
                         style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    Text(" · ", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.outline)
+                    Text(
+                        " · ",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.outline
+                    )
                     Surface(
                         color = MaterialTheme.colorScheme.secondaryContainer,
                         shape = MaterialTheme.shapes.extraSmall,
@@ -126,7 +144,11 @@ internal fun WeekTopBar(
                         style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    Text(" · ", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.outline)
+                    Text(
+                        " · ",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.outline
+                    )
                     Surface(
                         color = MaterialTheme.colorScheme.secondaryContainer,
                         shape = MaterialTheme.shapes.extraSmall,
@@ -153,10 +175,16 @@ internal fun WeekTopBar(
         ),
         actions = {
             IconButton(onClick = onPrevWeek) {
-                Icon(imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = "上一周")
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                    contentDescription = "上一周"
+                )
             }
             IconButton(onClick = onNextWeek) {
-                Icon(imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "下一周")
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                    contentDescription = "下一周"
+                )
             }
             FilterChip(
                 selected = false,
@@ -186,7 +214,11 @@ internal fun SettingsTopBar(
                         style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    Text(" · ", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.outline)
+                    Text(
+                        " · ",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.outline
+                    )
                     Surface(
                         color = MaterialTheme.colorScheme.secondaryContainer,
                         shape = MaterialTheme.shapes.extraSmall,
@@ -260,7 +292,10 @@ internal fun TodayCoursesContent(state: TodayCoursesUiState, timeTick: Long) {
         }
         return
     }
-    LazyColumn(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
         items(state.courses, key = { it.id }) { course ->
             CourseItemCard(course = course, isToday = !state.isTomorrow, refreshTick = timeTick)
         }
@@ -316,10 +351,17 @@ internal fun WeekCoursesContent(state: WeekCoursesUiState) {
 internal fun StudentSettingsContent(
     showImportButton: Boolean,
     onShowImportButtonChange: (Boolean) -> Unit,
+    currentWeek: Int,
+    onCurrentWeekChange: (Int) -> Unit,
+    onApplyCurrentWeek: () -> Unit,
+    selectedAccent: ThemeAccent,
+    onAccentChange: (ThemeAccent) -> Unit,
 ) {
+    var themeDropdownExpanded by remember { mutableStateOf(false) }
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .verticalScroll(rememberScrollState())
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
@@ -335,7 +377,10 @@ internal fun StudentSettingsContent(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                Column(modifier = Modifier.weight(1f)) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
                     Text(
                         text = "课程导入按钮显示",
                         style = MaterialTheme.typography.titleSmall,
@@ -351,6 +396,120 @@ internal fun StudentSettingsContent(
                     checked = showImportButton,
                     onCheckedChange = onShowImportButtonChange,
                 )
+            }
+        }
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = MaterialTheme.shapes.large,
+            color = MaterialTheme.colorScheme.surfaceColorAtElevation(2.dp),
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    text = "当前是第几周",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = "修改后会刷新今日与周课表显示",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    IconButton(
+                        onClick = { if (currentWeek > 1) onCurrentWeekChange(currentWeek - 1) },
+                        modifier = Modifier.size(34.dp),
+                    ) {
+                        Text("-", style = MaterialTheme.typography.titleLarge)
+                    }
+                    Text(
+                        text = "第 $currentWeek 周",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Medium,
+                    )
+                    IconButton(
+                        onClick = { if (currentWeek < 25) onCurrentWeekChange(currentWeek + 1) },
+                        modifier = Modifier.size(34.dp),
+                    ) {
+                        Text("+", style = MaterialTheme.typography.titleLarge)
+                    }
+                }
+                TextButton(
+                    onClick = onApplyCurrentWeek,
+                    modifier = Modifier.align(Alignment.End),
+                ) {
+                    Text("应用到课表")
+                }
+            }
+        }
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = MaterialTheme.shapes.large,
+            color = MaterialTheme.colorScheme.surfaceColorAtElevation(2.dp),
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "主题颜色",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        text = "选择你偏好的界面主色调",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                ExposedDropdownMenuBox(
+                    expanded = themeDropdownExpanded,
+                    onExpandedChange = { themeDropdownExpanded = !themeDropdownExpanded },
+                ) {
+                    OutlinedTextField(
+                        value = selectedAccent.label,
+                        onValueChange = {},
+                        readOnly = true,
+                        singleLine = true,
+                        textStyle = MaterialTheme.typography.bodyMedium,
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = themeDropdownExpanded) },
+                        modifier = Modifier
+                            .menuAnchor(
+                                type = ExposedDropdownMenuAnchorType.PrimaryNotEditable,
+                                enabled = true,
+                            )
+                            .size(width = 126.dp, height = 48.dp),
+                    )
+                    ExposedDropdownMenu(
+                        expanded = themeDropdownExpanded,
+                        onDismissRequest = { themeDropdownExpanded = false },
+                    ) {
+                        ThemeAccent.entries.forEach { accent ->
+                            DropdownMenuItem(
+                                text = { Text(accent.label) },
+                                onClick = {
+                                    onAccentChange(accent)
+                                    themeDropdownExpanded = false
+                                },
+                            )
+                        }
+                    }
+                }
             }
         }
     }
@@ -377,9 +536,16 @@ internal fun WeekTimetableFullScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                Text("周课表全屏", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold)
+                Text(
+                    "周课表全屏",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.ExtraBold
+                )
                 IconButton(onClick = onDismiss) {
-                    Icon(imageVector = Icons.Outlined.CloseFullscreen, contentDescription = "退出全屏")
+                    Icon(
+                        imageVector = Icons.Outlined.CloseFullscreen,
+                        contentDescription = "退出全屏"
+                    )
                 }
             }
             Row(
@@ -388,12 +554,21 @@ internal fun WeekTimetableFullScreen(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 IconButton(onClick = onPrevWeek) {
-                    Icon(imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = "上一周")
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                        contentDescription = "上一周"
+                    )
                 }
                 IconButton(onClick = onNextWeek) {
-                    Icon(imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "下一周")
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = "下一周"
+                    )
                 }
-                FilterChip(selected = false, onClick = onBackToCurrentWeek, label = { Text("本周") })
+                FilterChip(
+                    selected = false,
+                    onClick = onBackToCurrentWeek,
+                    label = { Text("本周") })
                 Text(
                     text = "第 ${state.displayingWeek} 周",
                     style = MaterialTheme.typography.labelLarge,

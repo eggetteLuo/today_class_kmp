@@ -9,6 +9,7 @@ import androidx.compose.material.icons.outlined.Today
 import androidx.compose.material.icons.outlined.ViewWeek
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHostState
@@ -34,6 +35,7 @@ import com.eggetteluo.todayclass.core.log.AppLogger
 import com.eggetteluo.todayclass.core.preferences.StudentSettingsPreferences
 import com.eggetteluo.todayclass.core.preferences.TermPreferences
 import com.eggetteluo.todayclass.core.system.FullscreenLandscapeEffect
+import com.eggetteluo.todayclass.core.theme.AppThemeState
 import com.eggetteluo.todayclass.core.time.AcademicWeekCalculator
 import com.eggetteluo.todayclass.feature.desktop.components.RoleDesktopScaffold
 import com.eggetteluo.todayclass.feature.desktop.model.DesktopTab
@@ -55,6 +57,7 @@ import kotlinx.datetime.number
 import kotlinx.datetime.todayIn
 import org.koin.compose.koinInject
 import kotlin.time.Clock
+import androidx.compose.ui.unit.dp
 
 private val studentTabs = listOf(
     DesktopTab(topTitle = "看今日", bottomLabel = "看今日", icon = Icons.Outlined.Today),
@@ -78,6 +81,8 @@ fun StudentDesktopScreen() {
     var isTomorrow by rememberSaveable { mutableStateOf(false) }
     var isWeekFullScreen by rememberSaveable { mutableStateOf(false) }
     var showImportButton by rememberSaveable { mutableStateOf(StudentSettingsPreferences.getShowImportButton()) }
+    var settingsWeek by rememberSaveable { mutableStateOf((TermPreferences.getLastSelectedWeek() ?: 1).coerceIn(1, 25)) }
+    val selectedAccent = AppThemeState.currentAccent
     var weekView by rememberSaveable {
         mutableStateOf(
             TermPreferences.getTermStartEpochDay()?.let { AcademicWeekCalculator.calculateCurrentWeek(it) } ?: 1,
@@ -162,6 +167,7 @@ fun StudentDesktopScreen() {
                     val termStartEpochDay = AcademicWeekCalculator.deriveTermStartEpochDayFromToday(selectedWeek)
                     TermPreferences.setTermStartEpochDay(termStartEpochDay)
                     TermPreferences.setLastSelectedWeek(selectedWeek)
+                    settingsWeek = selectedWeek
                     weekView = selectedWeek
                     refreshKey++
                 }
@@ -204,6 +210,14 @@ fun StudentDesktopScreen() {
                     onClick = { showWeekDialog = true },
                     icon = { Icon(imageVector = Icons.Outlined.Add, contentDescription = null) },
                     text = { Text("导入课表") },
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                    elevation = FloatingActionButtonDefaults.elevation(
+                        defaultElevation = 0.dp,
+                        pressedElevation = 0.dp,
+                        focusedElevation = 0.dp,
+                        hoveredElevation = 0.dp,
+                    ),
                 )
             }
         },
@@ -217,6 +231,21 @@ fun StudentDesktopScreen() {
                         showImportButton = it
                         StudentSettingsPreferences.setShowImportButton(it)
                     },
+                    currentWeek = settingsWeek,
+                    onCurrentWeekChange = { settingsWeek = it.coerceIn(1, 25) },
+                    onApplyCurrentWeek = {
+                        val targetWeek = settingsWeek.coerceIn(1, 25)
+                        val termStartEpochDay = AcademicWeekCalculator.deriveTermStartEpochDayFromToday(targetWeek)
+                        TermPreferences.setTermStartEpochDay(termStartEpochDay)
+                        TermPreferences.setLastSelectedWeek(targetWeek)
+                        weekView = targetWeek
+                        refreshKey++
+                        scope.launch {
+                            snackbarHostState.showSnackbar("已设置为第 $targetWeek 周")
+                        }
+                    },
+                    selectedAccent = selectedAccent,
+                    onAccentChange = { AppThemeState.setAccent(it) },
                 )
             }
         },

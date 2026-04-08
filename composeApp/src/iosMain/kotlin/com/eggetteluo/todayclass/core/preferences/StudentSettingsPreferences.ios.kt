@@ -3,6 +3,7 @@ package com.eggetteluo.todayclass.core.preferences
 import platform.Foundation.NSUserDefaults
 
 private const val KEY_SHOW_IMPORT_BUTTON = "show_import_button"
+private const val KEY_THEME_ACCENT = "theme_accent"
 
 actual object StudentSettingsPreferences {
     private val userDefaults: NSUserDefaults by lazy { NSUserDefaults.standardUserDefaults }
@@ -17,5 +18,13 @@ actual object StudentSettingsPreferences {
 
     actual fun setShowImportButton(value: Boolean) {
         userDefaults.setBool(value, forKey = KEY_SHOW_IMPORT_BUTTON)
+    }
+
+    actual fun getThemeAccent(): String? {
+        return userDefaults.stringForKey(KEY_THEME_ACCENT)
+    }
+
+    actual fun setThemeAccent(value: String) {
+        userDefaults.setObject(value, forKey = KEY_THEME_ACCENT)
     }
 }

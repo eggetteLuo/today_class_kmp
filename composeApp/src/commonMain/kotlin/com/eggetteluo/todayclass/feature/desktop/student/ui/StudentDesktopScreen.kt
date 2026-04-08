@@ -13,7 +13,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberTopAppBarState
 import androidx.compose.runtime.Composable
@@ -32,11 +31,14 @@ import com.eggetteluo.todayclass.core.database.mapper.toEntity
 import com.eggetteluo.todayclass.core.database.repository.CourseScheduleRepository
 import com.eggetteluo.todayclass.core.excel.ExcelDebugReader
 import com.eggetteluo.todayclass.core.log.AppLogger
+import com.eggetteluo.todayclass.core.preferences.StudentSettingsPreferences
 import com.eggetteluo.todayclass.core.preferences.TermPreferences
 import com.eggetteluo.todayclass.core.system.FullscreenLandscapeEffect
 import com.eggetteluo.todayclass.core.time.AcademicWeekCalculator
 import com.eggetteluo.todayclass.feature.desktop.components.RoleDesktopScaffold
 import com.eggetteluo.todayclass.feature.desktop.model.DesktopTab
+import com.eggetteluo.todayclass.feature.desktop.student.ui.components.SettingsTopBar
+import com.eggetteluo.todayclass.feature.desktop.student.ui.components.StudentSettingsContent
 import com.eggetteluo.todayclass.feature.desktop.student.ui.components.TodayCoursesContent
 import com.eggetteluo.todayclass.feature.desktop.student.ui.components.TodayTopBar
 import com.eggetteluo.todayclass.feature.desktop.student.ui.components.WeekCoursesContent
@@ -75,6 +77,7 @@ fun StudentDesktopScreen() {
     var refreshKey by rememberSaveable { mutableStateOf(0) }
     var isTomorrow by rememberSaveable { mutableStateOf(false) }
     var isWeekFullScreen by rememberSaveable { mutableStateOf(false) }
+    var showImportButton by rememberSaveable { mutableStateOf(StudentSettingsPreferences.getShowImportButton()) }
     var weekView by rememberSaveable {
         mutableStateOf(
             TermPreferences.getTermStartEpochDay()?.let { AcademicWeekCalculator.calculateCurrentWeek(it) } ?: 1,
@@ -189,21 +192,32 @@ fun StudentDesktopScreen() {
                     onBackToCurrentWeek = { weekView = weekUiState.currentWeek ?: weekView },
                     onFullScreen = { isWeekFullScreen = true },
                 )
-                else -> TopAppBar(title = { Text(currentTab.topTitle) })
+                else -> SettingsTopBar(
+                    currentWeek = todayUiState.currentWeek,
+                    scrollBehavior = scrollBehavior,
+                )
             }
         },
         floatingActionButton = {
-            ExtendedFloatingActionButton(
-                onClick = { showWeekDialog = true },
-                icon = { Icon(imageVector = Icons.Outlined.Add, contentDescription = null) },
-                text = { Text("导入课表") },
-            )
+            if (showImportButton) {
+                ExtendedFloatingActionButton(
+                    onClick = { showWeekDialog = true },
+                    icon = { Icon(imageVector = Icons.Outlined.Add, contentDescription = null) },
+                    text = { Text("导入课表") },
+                )
+            }
         },
         content = { selectedTabIndex, _ ->
             when (selectedTabIndex) {
                 0 -> TodayCoursesContent(state = todayUiState, timeTick = timeTick)
                 1 -> WeekCoursesContent(state = weekUiState)
-                else -> Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("该页面开发中") }
+                else -> StudentSettingsContent(
+                    showImportButton = showImportButton,
+                    onShowImportButtonChange = {
+                        showImportButton = it
+                        StudentSettingsPreferences.setShowImportButton(it)
+                    },
+                )
             }
         },
     )

@@ -23,6 +23,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.CloseFullscreen
 import androidx.compose.material.icons.outlined.OpenInFull
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Today
 import androidx.compose.material.icons.outlined.ViewWeek
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -32,6 +33,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.surfaceColorAtElevation
@@ -170,6 +172,59 @@ internal fun WeekTopBar(
 }
 
 @Composable
+internal fun SettingsTopBar(
+    currentWeek: Int?,
+    scrollBehavior: androidx.compose.material3.TopAppBarScrollBehavior,
+) {
+    LargeTopAppBar(
+        title = {
+            Column {
+                Text("设置", fontWeight = FontWeight.ExtraBold)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "个性化与课表管理",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(" · ", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.outline)
+                    Surface(
+                        color = MaterialTheme.colorScheme.secondaryContainer,
+                        shape = MaterialTheme.shapes.extraSmall,
+                        modifier = Modifier.padding(start = 2.dp),
+                    ) {
+                        Text(
+                            text = "第 ${currentWeek ?: "-"} 周",
+                            style = MaterialTheme.typography.labelSmall,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+                }
+            }
+        },
+        scrollBehavior = scrollBehavior,
+        colors = TopAppBarDefaults.topAppBarColors(
+            containerColor = MaterialTheme.colorScheme.surface,
+            scrolledContainerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(3.dp),
+            navigationIconContentColor = Color.Unspecified,
+            titleContentColor = Color.Unspecified,
+            actionIconContentColor = Color.Unspecified,
+        ),
+        actions = {
+            Icon(
+                imageVector = Icons.Outlined.Settings,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .padding(end = 16.dp)
+                    .size(20.dp),
+            )
+        },
+    )
+}
+
+@Composable
 internal fun TodayCoursesContent(state: TodayCoursesUiState, timeTick: Long) {
     if (!state.termConfigured) {
         Box(
@@ -254,6 +309,50 @@ internal fun WeekCoursesContent(state: WeekCoursesUiState) {
             WeekTimetableBoard(courses = state.courses, modifier = Modifier.fillMaxWidth())
         }
         Spacer(modifier = Modifier.height(96.dp))
+    }
+}
+
+@Composable
+internal fun StudentSettingsContent(
+    showImportButton: Boolean,
+    onShowImportButtonChange: (Boolean) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = MaterialTheme.shapes.large,
+            color = MaterialTheme.colorScheme.surfaceColorAtElevation(2.dp),
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "课程导入按钮显示",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        text = "关闭后将隐藏右下角导入课表按钮",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = showImportButton,
+                    onCheckedChange = onShowImportButtonChange,
+                )
+            }
+        }
     }
 }
 
